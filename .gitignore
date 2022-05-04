@@ -1,0 +1,5 @@
+.DS_Store
+
+test-agi-game/
+zig-cache/
+zig-out/

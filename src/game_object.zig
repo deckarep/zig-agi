@@ -12,9 +12,9 @@ pub const GameObject = struct {
     loop: u8,
     cel: u8,
     // fixedLoop: bool,
-    // priority: number = 0;
-    // fixedPriority: bool,
-    // reverseCycle: bool,
+    priority: u8,
+    fixedPriority: bool,
+    reverseCycle: bool,
     cycleTime: u8,
     celCycling: bool,
     // callAtEndOfLoop: bool,
@@ -34,7 +34,7 @@ pub const GameObject = struct {
     // allowedSurface: number = 0;
     update: bool,
     // reverseLoop: boolean = false;
-    // nextCycle: number = 1;
+    nextCycle: u8,
 
     // oldX: number = 0;
     // oldY: number = 0;

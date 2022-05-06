@@ -11,8 +11,13 @@ var prng = std.rand.DefaultPrng.init(0);
 const rand = prng.random();
 
 // NOTES:
+
+// Logic:
 //  * if (initLog) {} means "initial logic" or constructor code for a logic room.
 //  * when sound is played, a flag is also passed in to know completion, ie. 'musicDone'...unless sound is implemented full game logic won't work.
+
+// Views:
+//  * Extracted format is: 40_0_1.png aka: {viewNo}_{loop}_{cell}.png.
 
 var vmInstance = agi_vm.VM.init();
 

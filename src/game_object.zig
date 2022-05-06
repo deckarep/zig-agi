@@ -8,23 +8,23 @@ pub const GameObject = struct {
     draw: bool,
     // redraw: bool,
     // direction: Direction = Direction.Stopped;
-    // viewNo: number = 0;
+    viewNo: u8,
     // loop: number = 0;
     // cel: number = 0;
     // fixedLoop: bool,
     // priority: number = 0;
     // fixedPriority: bool,
     // reverseCycle: bool,
-    // cycleTime: number = 1;
+    cycleTime: u8,
     // celCycling: bool,
     // callAtEndOfLoop: bool,
     // flagToSetWhenFinished: number = 0;
-    // ignoreHorizon: bool,
-    // ignoreBlocks: bool,
-    // ignoreObjs: bool,
+    ignoreHorizon: bool,
+    ignoreBlocks: bool,
+    ignoreObjs: bool,
     // motion: bool,
-    // stepSize: number = 1;
-    // stepTime: number = 0;
+    stepSize: u8,
+    stepTime: u8,
 
     // moveToX: number = 0;
     // moveToY: number = 0;

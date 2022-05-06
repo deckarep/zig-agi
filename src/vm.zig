@@ -67,6 +67,7 @@ fn buildDirIndex(dirFile: []const u8) ![DIR_INDEX_SIZE]DirectoryIndex {
 
 pub const VM = struct {
     newroom: u8,
+    horizon: u8,
     allowInput: bool,
     vars: [TOTAL_VARS]u8,
     flags: [TOTAL_FLAGS]bool,
@@ -82,7 +83,7 @@ pub const VM = struct {
 
     // init creates a new instance of an AGI VM.
     pub fn init() VM {
-        var myVM = VM{ .logicIndex = undefined, .picIndex = undefined, .viewIndex = undefined, .logicStack = std.mem.zeroes([LOGIC_STACK_SIZE]u8), .logicStackPtr = 0, .activeLogicNo = 0, .newroom = 0, .allowInput = false, .vars = std.mem.zeroes([TOTAL_VARS]u8), .flags = std.mem.zeroes([TOTAL_FLAGS]bool), .gameObjects = std.mem.zeroes([TOTAL_GAME_OBJS]go.GameObject) };
+        var myVM = VM{ .logicIndex = undefined, .picIndex = undefined, .viewIndex = undefined, .logicStack = std.mem.zeroes([LOGIC_STACK_SIZE]u8), .logicStackPtr = 0, .activeLogicNo = 0, .newroom = 0, .horizon = 0, .allowInput = false, .vars = std.mem.zeroes([TOTAL_VARS]u8), .flags = std.mem.zeroes([TOTAL_FLAGS]bool), .gameObjects = std.mem.zeroes([TOTAL_GAME_OBJS]go.GameObject) };
         return myVM;
     }
 
@@ -152,7 +153,7 @@ pub const VM = struct {
                 //self.loadedLogics = self.loadedLogics.slice(0, 1);
                 //self.agi_player_control();
                 //self.agi_unblock();
-                //self.agi_set_horizon(36);
+                self.agi_set_horizon(36);
 
                 self.vars[1] = self.vars[0];
                 self.vars[0] = self.newroom;
@@ -304,7 +305,10 @@ pub const VM = struct {
 
             const opCodeNR = volPartFbs.reader().readByte() catch |e| {
                 switch (e) {
-                    error.EndOfStream => break,
+                    error.EndOfStream => {
+                        std.log.info("end of logic script({d}) encountered so BREAKing...", .{idx});
+                        break;
+                    },
                 }
             };
 
@@ -418,6 +422,9 @@ pub const VM = struct {
                         } else if (std.mem.eql(u8, statementFunc.name, "call")) {
                             const a = try volPartFbs.reader().readByte();
                             try self.agi_call(a);
+                        } else if (std.mem.eql(u8, statementFunc.name, "call_v")) {
+                            const a = try volPartFbs.reader().readByte();
+                            try self.agi_call_v(a);
                         } else if (std.mem.eql(u8, statementFunc.name, "force_update")) {
                             const a = try volPartFbs.reader().readByte();
                             self.agi_force_update(a);
@@ -477,6 +484,25 @@ pub const VM = struct {
                         } else if (std.mem.eql(u8, statementFunc.name, "decrement")) {
                             const a = try volPartFbs.reader().readByte();
                             self.agi_decrement(a);
+                        } else if (std.mem.eql(u8, statementFunc.name, "load_view_v")) {
+                            const a = try volPartFbs.reader().readByte();
+                            self.agi_load_view_v(a);
+                        } else if (std.mem.eql(u8, statementFunc.name, "set_view_v")) {
+                            const a = try volPartFbs.reader().readByte();
+                            const b = try volPartFbs.reader().readByte();
+                            self.agi_set_view_v(a, b);
+                        } else if (std.mem.eql(u8, statementFunc.name, "set_horizon")) {
+                            const a = try volPartFbs.reader().readByte();
+                            self.agi_set_horizon(a);
+                        } else if (std.mem.eql(u8, statementFunc.name, "load_sound")) {
+                            const a = try volPartFbs.reader().readByte();
+                            self.agi_load_sound(a);
+                        } else if (std.mem.eql(u8, statementFunc.name, "sound")) {
+                            const a = try volPartFbs.reader().readByte();
+                            const b = try volPartFbs.reader().readByte();
+                            self.agi_sound(a, b);
+                        } else if (std.mem.eql(u8, statementFunc.name, "stop_sound")) {
+                            self.agi_stop_sound();
                         } else if (std.mem.eql(u8, statementFunc.name, "xxx")) {
                             // template.
                         } else {
@@ -630,6 +656,10 @@ pub const VM = struct {
         self.activeLogicNo = self.vm_pop_logic_stack();
     }
 
+    pub fn agi_call_v(self: *VM, varNo: usize) !void {
+        try self.agi_call(self.vars[varNo]);
+    }
+
     pub fn agi_quit(_: *VM, statusCode: u8) void {
         std.log.info("agi_quit({d}) exited..", .{statusCode});
         std.os.exit(statusCode);
@@ -642,10 +672,6 @@ pub const VM = struct {
 
     pub fn agi_load_logic_v(self: *VM, varNo: u8) void {
         self.agi_load_logic(self.vars[varNo]);
-    }
-
-    pub fn agi_call_v(self: *VM, varNo: usize) void {
-        self.agi_call(self.vars[varNo]);
     }
 
     pub fn agi_increment(self: *VM, varNo: usize) void {
@@ -770,5 +796,41 @@ pub const VM = struct {
 
     pub fn agi_lindirectn(self: *VM, varNo: u8, val: u8) void {
         self.vars[self.vars[varNo]] = val;
+    }
+
+    pub fn agi_set_view(self: *VM, objNo: u8, viewNo: u8) void {
+        self.gameObjects[objNo].viewNo = viewNo;
+        self.gameObjects[objNo].loop = 0;
+        self.gameObjects[objNo].cel = 0;
+        self.gameObjects[objNo].celCycling = true;
+    }
+
+    pub fn agi_set_view_v(self: *VM, objNo: u8, varNo: u8) void {
+        self.agi_set_view(objNo, self.vars[varNo]);
+    }
+
+    pub fn agi_load_view(_: *VM, viewNo: u8) void {
+        //self.loadedViews[viewNo] = new View(Resources.readAgiResource(Resources.AgiResource.View, viewNo));
+        std.log.info("agi_load_view({d}) invoked...", .{viewNo});
+    }
+
+    pub fn agi_load_view_v(self: *VM, varNo: u8) void {
+        self.agi_load_view(self.vars[varNo]);
+    }
+
+    pub fn agi_set_horizon(self: *VM, y: u8) void {
+        self.horizon = y;
+    }
+
+    pub fn agi_load_sound(_: *VM, soundNo: u8) void {
+        std.log.info("agi_load_sound({d}) invoked...", .{soundNo});
+    }
+
+    pub fn agi_sound(_: *VM, soundNo: u8, flagNo: u8) void {
+        std.log.info("agi_sound({d}, {d}) invoked...", .{ soundNo, flagNo });
+    }
+
+    pub fn agi_stop_sound(_: *VM) void {
+        std.log.info("agi_stop_sound() invoked...", .{});
     }
 };

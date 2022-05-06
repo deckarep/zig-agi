@@ -9,14 +9,14 @@ pub const GameObject = struct {
     // redraw: bool,
     // direction: Direction = Direction.Stopped;
     viewNo: u8,
-    // loop: number = 0;
-    // cel: number = 0;
+    loop: u8,
+    cel: u8,
     // fixedLoop: bool,
     // priority: number = 0;
     // fixedPriority: bool,
     // reverseCycle: bool,
     cycleTime: u8,
-    // celCycling: bool,
+    celCycling: bool,
     // callAtEndOfLoop: bool,
     // flagToSetWhenFinished: number = 0;
     ignoreHorizon: bool,

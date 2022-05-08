@@ -386,11 +386,15 @@ pub const VM = struct {
                             if (opCodeNR == 0x0E) { //Said (uses variable num of 16-bit args, within bytecode!)
                                 const saidArgLen = try volPartFbs.reader().readByte();
                                 var iSaidCount: usize = 0;
+
+                                // Using an array of a fixed 30 size and will slice upon passing (should be plenty big).
+                                var argsToPass: [30]u16 = undefined;
                                 while (iSaidCount < saidArgLen) : (iSaidCount += 1) {
-                                    _ = try volPartFbs.reader().readInt(u16, std.builtin.Endian.Little);
+                                    const val = try volPartFbs.reader().readInt(u16, std.builtin.Endian.Little);
+                                    argsToPass[iSaidCount] = val;
                                 }
                                 // Invocation is hardcoded to nonsense array of: 1,2,3 for now.
-                                testResult = self.agi_test_said(&[_]u16{ 1, 2, 3 });
+                                testResult = self.agi_test_said(argsToPass[0..iSaidCount]);
                             } else {
                                 if (std.mem.eql(u8, testFunc.name, "greatern")) {
                                     const a = try volPartFbs.reader().readByte();
@@ -804,6 +808,7 @@ pub const VM = struct {
         if (self.vars[varNo] < 255) {
             self.vars[varNo] += 1;
         }
+        std.log.info("increment({d}:varNo) invoked to val: {d}", .{ varNo, self.vars[varNo] });
     }
 
     pub fn agi_decrement(self: *VM, varNo: usize) void {

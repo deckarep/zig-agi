@@ -15,6 +15,10 @@ const rand = prng.random();
 // Logic:
 //  * if (initLog) {} means "initial logic" or constructor code for a logic room.
 //  * when sound is played, a flag is also passed in to know completion, ie. 'musicDone'...unless sound is implemented full game logic won't work.
+//  * When seeing something like below:(this is a label!!!!)
+//      [*****
+//      :exit  (this is a label, and we can jump relative forward or backwards yall)
+//      [*****
 
 // Views:
 //  * Extracted format is: 40_0_1.png aka: {viewNo}_{loop}_{cell}.png.

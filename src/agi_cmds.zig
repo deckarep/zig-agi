@@ -3,6 +3,67 @@ pub const agi_test_tuple = struct {
     arity: i8,
 };
 
+// TODO: turn these into usable enum definitions from Zig-land.
+
+// /**
+//  * AGI variables. (VM dedicated Vars Pulled from ScummVM)
+//  */
+// enum {
+// 	VM_VAR_CURRENT_ROOM = 0,        // 0
+// 	VM_VAR_PREVIOUS_ROOM,           // 1
+// 	VM_VAR_BORDER_TOUCH_EGO,        // 2
+// 	VM_VAR_SCORE,                   // 3
+// 	VM_VAR_BORDER_CODE,             // 4
+// 	VM_VAR_BORDER_TOUCH_OBJECT,     // 5
+// 	VM_VAR_EGO_DIRECTION,           // 6
+// 	VM_VAR_MAX_SCORE,               // 7
+// 	VM_VAR_FREE_PAGES,              // 8
+// 	VM_VAR_WORD_NOT_FOUND,          // 9
+// 	VM_VAR_TIME_DELAY,              // 10
+// 	VM_VAR_SECONDS,                 // 11
+// 	VM_VAR_MINUTES,                 // 12
+// 	VM_VAR_HOURS,                   // 13
+// 	VM_VAR_DAYS,                    // 14
+// 	VM_VAR_JOYSTICK_SENSITIVITY,    // 15
+// 	VM_VAR_EGO_VIEW_RESOURCE,       // 16
+// 	VM_VAR_AGI_ERROR_CODE,          // 17
+// 	VM_VAR_AGI_ERROR_INFO,          // 18
+// 	VM_VAR_KEY,                     // 19
+// 	VM_VAR_COMPUTER,                // 20
+// 	VM_VAR_WINDOW_AUTO_CLOSE_TIMER, // 21
+// 	VM_VAR_SOUNDGENERATOR,          // 22
+// 	VM_VAR_VOLUME,                  // 23
+// 	VM_VAR_MAX_INPUT_CHARACTERS,    // 24
+// 	VM_VAR_SELECTED_INVENTORY_ITEM, // 25
+// 	VM_VAR_MONITOR = 26,            // 26
+// 	VM_VAR_MOUSE_BUTTONSTATE = 27,  // 27
+// 	VM_VAR_MOUSE_X = 28,            // 28
+// 	VM_VAR_MOUSE_Y = 29             // 29
+// };
+
+// /**
+//  * AGI flags (VM flags pulled from ScummVM)
+//  */
+// enum {
+// 	VM_FLAG_EGO_WATER = 0,  // 0
+// 	VM_FLAG_EGO_INVISIBLE,  // 1
+// 	VM_FLAG_ENTERED_CLI,    // 2
+// 	VM_FLAG_EGO_TOUCHED_P2,    // 3
+// 	VM_FLAG_SAID_ACCEPTED_INPUT,    // 4
+// 	VM_FLAG_NEW_ROOM_EXEC,  // 5
+// 	VM_FLAG_RESTART_GAME, // 6
+// 	VM_FLAG_SCRIPT_BLOCKED, // 7
+// 	VM_FLAG_JOY_SENSITIVITY, //8
+// 	VM_FLAG_SOUND_ON, // 9
+// 	VM_FLAG_DEBUGGER_ON,        // 10
+// 	VM_FLAG_LOGIC_ZERO_FIRST_TIME, //11
+// 	VM_FLAG_RESTORE_JUST_RAN, //12
+// 	VM_FLAG_STATUS_SELECTS_ITEMS, //13
+// 	VM_FLAG_MENUS_ACCESSIBLE, //14
+// 	VM_FLAG_OUTPUT_MODE,        // 15
+// 	VM_FLAG_AUTO_RESTART //16
+// };
+
 // Test/Statement commands also cross-referenced with:
 // * https://github.com/r1sc/agi.js/blob/master/Interpreter.ts
 // * https://github.com/sonneveld/nagi/blob/master/src/logic/cmd_table.c (more complete reference it would seem)

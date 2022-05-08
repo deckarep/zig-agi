@@ -19,6 +19,11 @@ const rand = prng.random();
 // Views:
 //  * Extracted format is: 40_0_1.png aka: {viewNo}_{loop}_{cell}.png.
 
+// Raylib drawing:
+//  * Using the Image api is slow and not recommended with raylib when it comes to frame/by/frame or speed.
+//  * Instead, one strategy is to just use my own raw memory in Zig for each painting buffer I need.
+//  * Then, for all blit routines loop over the raw memory as needed and just do a DrawPixel call to either the screen or a render texture, therefore avoiding the Image api entirely.
+
 var vmInstance = agi_vm.VM.init();
 
 // Adapted from: https://github.com/r1sc/agi.js/blob/master/Interpreter.ts
@@ -33,8 +38,8 @@ pub fn main() anyerror!void {
     defer c.CloseWindow();
 
     // Hide mouse cursor.
-    c.HideCursor();
-    defer c.ShowCursor();
+    //c.HideCursor();
+    //defer c.ShowCursor();
 
     // Seed the VM with data it needs.
     try vmInstance.vm_bootstrap();
@@ -47,16 +52,59 @@ pub fn main() anyerror!void {
     const larry = c.LoadTexture("test-agi-game/extracted/view/0_1_2.png");
     defer c.UnloadTexture(larry);
 
-    //std.log.info("logic dir:", .{});
-    //try readDir(logDirFile);
     vmInstance.vm_start();
+
+    // var target = c.LoadRenderTexture(1280, 672);
+    // c.BeginTextureMode(target);
+    // c.ClearBackground(hlp.col(255, 255, 255, 0));
+    // c.EndTextureMode();
 
     while (!c.WindowShouldClose()) {
         // Update section.
         try vmInstance.vm_cycle();
 
         // Draw section.
-        drawwRaylib(&bg, &larry);
+        //drawwRaylib(&bg, &larry);
+        // RENDER AT SPEED GOVERNED BY RAYLIB
+        // c.BeginTextureMode(target);
+        // // Do drawing stuff here
+        // const value = c.GetRandomValue(0, 5);
+        // if (c.IsMouseButtonDown(c.MOUSE_BUTTON_LEFT)) {
+        //     //c.DrawPixel(value, value, c.RED);
+        //     c.DrawPixel(c.GetMouseX(), c.GetMouseY(), c.Fade(c.RED, 0.2));
+        //     c.DrawPixel(c.GetMouseX() + value, c.GetMouseY() + value, c.Fade(c.GREEN, 0.2));
+        //     c.DrawPixel(c.GetMouseX() - value, c.GetMouseY() + value, c.Fade(c.BLUE, 0.2));
+        //     c.DrawPixel(c.GetMouseX() + value, c.GetMouseY() - value, c.Fade(c.RED, 0.2));
+        //     c.DrawPixel(c.GetMouseX() - value, c.GetMouseY() - value, c.Fade(c.YELLOW, 0.2));
+        // }
+
+        // c.EndTextureMode();
+
+        c.BeginDrawing();
+        c.ClearBackground(c.BLACK);
+
+        var i: usize = 0;
+        var xOffset: c_int = 10;
+        var yOffset: c_int = 10;
+        for (vmInstance.flags) |flg| {
+            c.DrawText(if (flg) "T" else "F", @intCast(c_int, ((i % 50) * 10)) + xOffset, @intCast(c_int, ((i % 10) * 10)) + yOffset, 10, c.RED);
+            i += 1;
+
+            //std.log.info("boom: {t}", .{flg});
+        }
+        // // NOTE: Render texture must be y-flipped due to default OpenGL coordinates (left-bottom)
+        // var i: usize = 0;
+        // //var rFactor: c_int = if (c.IsMouseButtonDown(c.MOUSE_BUTTON_LEFT)) 30 else 1;
+        // //const valueA = @intToFloat(f32, c.GetRandomValue(1, rFactor));
+        // //c.BeginBlendMode(c.BLEND_ADDITIVE);
+        // while (i < 5) : (i += 1) {
+        //     // const valueB = @intToFloat(f32, c.GetRandomValue(1, rFactor));
+        //     // const valueC = @intToFloat(f32, c.GetRandomValue(1, rFactor));
+        //     // const valueD = @intToFloat(f32, c.GetRandomValue(1, rFactor));
+        //     c.DrawTexturePro(target.texture, hlp.rect(0, 0, 1280, -672), hlp.rect(0, 0, 1280, 672), hlp.vec2(0, 0), 0, c.WHITE);
+        // }
+        //c.EndBlendMode();
+        c.EndDrawing();
     }
 }
 

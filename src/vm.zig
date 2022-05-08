@@ -3,6 +3,9 @@ const ArrayList = std.ArrayList;
 
 const go = @import("game_object.zig");
 const cmds = @import("agi_cmds.zig");
+const hlp = @import("raylib_helpers.zig");
+
+const clib = @import("c_defs.zig").c;
 
 // HACK zone, just doing a quick and dirty comptime embed file.
 const rootPath = "/Users/deckarep/Desktop/ralph-agi/test-agi-game/";
@@ -29,6 +32,14 @@ const DirectoryIndex = struct {
     vol: u32,
     offset: u32,
 };
+
+const vm_width = 1280;
+const vm_height = 672;
+
+//pub var visualBuffer = clib.GenImageColor(vm_width, vm_height, hlp.col(255, 255, 255, 255));
+// pub var priorityBuffer = clib.GenImageColor(vm_width, vm_height, hlp.col(255, 255, 255, 255));
+// pub var framePriorityData = clib.GenImageColor(vm_width, vm_height, hlp.col(255, 255, 255, 255));
+// pub var frameData = clib.GenImageColor(vm_width, vm_height, hlp.col(255, 255, 255, 255));
 
 // Needed because Zig can't resolve error unions with recursive function calls.
 const VMError = error{
@@ -69,6 +80,8 @@ pub const VM = struct {
     newroom: u8,
     horizon: u8,
     allowInput: bool,
+    haveKey: bool,
+    programControl: bool,
     vars: [TOTAL_VARS]u8,
     flags: [TOTAL_FLAGS]bool,
     gameObjects: [TOTAL_GAME_OBJS]go.GameObject,
@@ -83,7 +96,7 @@ pub const VM = struct {
 
     // init creates a new instance of an AGI VM.
     pub fn init() VM {
-        var myVM = VM{ .logicIndex = undefined, .picIndex = undefined, .viewIndex = undefined, .logicStack = std.mem.zeroes([LOGIC_STACK_SIZE]u8), .logicStackPtr = 0, .activeLogicNo = 0, .newroom = 0, .horizon = 0, .allowInput = false, .vars = std.mem.zeroes([TOTAL_VARS]u8), .flags = std.mem.zeroes([TOTAL_FLAGS]bool), .gameObjects = std.mem.zeroes([TOTAL_GAME_OBJS]go.GameObject) };
+        var myVM = VM{ .logicIndex = undefined, .picIndex = undefined, .viewIndex = undefined, .logicStack = std.mem.zeroes([LOGIC_STACK_SIZE]u8), .logicStackPtr = 0, .activeLogicNo = 0, .newroom = 0, .horizon = 0, .allowInput = false, .haveKey = false, .programControl = false, .vars = std.mem.zeroes([TOTAL_VARS]u8), .flags = std.mem.zeroes([TOTAL_FLAGS]bool), .gameObjects = std.mem.zeroes([TOTAL_GAME_OBJS]go.GameObject) };
         return myVM;
     }
 
@@ -297,9 +310,9 @@ pub const VM = struct {
         while (true) {
             std.log.info("activeLogicNo => {d}", .{self.activeLogicNo});
             // TODO: (DELETE ME) Safety to prevent runaway..
-            if (maxIters > 200) {
+            if (maxIters > 1200) {
                 std.log.info("max iterations MET!!!", .{});
-                break;
+                std.os.exit(9);
             }
             maxIters += 1;
 
@@ -362,13 +375,12 @@ pub const VM = struct {
                         } else if (opCodeNR == 0xFD) {
                             invertMode = !invertMode;
                         } else {
-                            var testCallResult = false;
-
                             if ((opCodeNR - 1) >= cmds.agi_tests.len) {
                                 std.log.info("FATAL: trying to fetch a test from index: {d}", .{opCodeNR - 1});
                                 return;
                             }
                             const testFunc = cmds.agi_tests[opCodeNR - 1];
+                            var testCallResult = false;
 
                             std.log.info("agi test (op:{X:0>2}): {s}(args => {d}) here...", .{ opCodeNR - 1, testFunc.name, testFunc.arity });
                             if (opCodeNR == 0x0E) { //Said (uses variable num of 16-bit args, within bytecode!)
@@ -377,6 +389,8 @@ pub const VM = struct {
                                 while (iSaidCount < saidArgLen) : (iSaidCount += 1) {
                                     _ = try volPartFbs.reader().readInt(u16, std.builtin.Endian.Little);
                                 }
+                                // Invocation is hardcoded to nonsense array of: 1,2,3 for now.
+                                testResult = self.agi_test_said(&[_]u16{ 1, 2, 3 });
                             } else {
                                 if (std.mem.eql(u8, testFunc.name, "greatern")) {
                                     const a = try volPartFbs.reader().readByte();
@@ -387,11 +401,23 @@ pub const VM = struct {
                                     const a = try volPartFbs.reader().readByte();
                                     testCallResult = self.agi_test_isset(a);
                                     std.log.info("isset({d})", .{a});
+                                } else if (std.mem.eql(u8, testFunc.name, "controller")) {
+                                    const a = try volPartFbs.reader().readByte();
+                                    testCallResult = self.agi_test_controller(a);
+                                    std.log.info("test_controller({d})", .{a});
                                 } else if (std.mem.eql(u8, testFunc.name, "equaln")) {
                                     const a = try volPartFbs.reader().readByte();
                                     const b = try volPartFbs.reader().readByte();
                                     testCallResult = self.agi_test_equaln(a, b);
                                     std.log.info("test_equaln({d}, {d})", .{ a, b });
+                                } else if (std.mem.eql(u8, testFunc.name, "equalv")) {
+                                    const a = try volPartFbs.reader().readByte();
+                                    const b = try volPartFbs.reader().readByte();
+                                    testCallResult = self.agi_test_equalv(a, b);
+                                    std.log.info("test_equalv({d}, {d})", .{ a, b });
+                                } else if (std.mem.eql(u8, testFunc.name, "have_key")) {
+                                    testCallResult = self.agi_test_have_key();
+                                    std.log.info("agi_test_have_key()", .{});
                                 } else {
                                     std.log.info("test op:{d}(0x{X:0>2}) not handled!", .{ opCodeNR - 1, opCodeNR - 1 });
                                     self.vm_op_not_implemented(35);
@@ -432,6 +458,10 @@ pub const VM = struct {
                             const a = try volPartFbs.reader().readByte();
                             const b = try volPartFbs.reader().readByte();
                             self.agi_assignn(a, b);
+                        } else if (std.mem.eql(u8, statementFunc.name, "assignv")) {
+                            const a = try volPartFbs.reader().readByte();
+                            const b = try volPartFbs.reader().readByte();
+                            self.agi_assignv(a, b);
                         } else if (std.mem.eql(u8, statementFunc.name, "clear_lines")) {
                             const a = try volPartFbs.reader().readByte();
                             const b = try volPartFbs.reader().readByte();
@@ -494,6 +524,9 @@ pub const VM = struct {
                             const a = try volPartFbs.reader().readByte();
                             const b = try volPartFbs.reader().readByte();
                             self.agi_lindirectn(a, b);
+                        } else if (std.mem.eql(u8, statementFunc.name, "increment")) {
+                            const a = try volPartFbs.reader().readByte();
+                            self.agi_increment(a);
                         } else if (std.mem.eql(u8, statementFunc.name, "decrement")) {
                             const a = try volPartFbs.reader().readByte();
                             self.agi_decrement(a);
@@ -554,10 +587,21 @@ pub const VM = struct {
                             const a = try volPartFbs.reader().readByte();
                             const b = try volPartFbs.reader().readByte();
                             self.agi_set_priority_v(a, b);
+                        } else if (std.mem.eql(u8, statementFunc.name, "current_view")) {
+                            const a = try volPartFbs.reader().readByte();
+                            const b = try volPartFbs.reader().readByte();
+                            self.agi_currentview(a, b);
                         } else if (std.mem.eql(u8, statementFunc.name, "stop_sound")) {
                             self.agi_stop_sound();
                         } else if (std.mem.eql(u8, statementFunc.name, "show_pic")) {
                             self.agi_show_pic();
+                        } else if (std.mem.eql(u8, statementFunc.name, "program_control")) {
+                            self.agi_program_control();
+                        } else if (std.mem.eql(u8, statementFunc.name, "player_control")) {
+                            self.agi_player_control();
+                        } else if (std.mem.eql(u8, statementFunc.name, "start_cycling")) {
+                            const a = try volPartFbs.reader().readByte();
+                            self.agi_start_cycling(a);
                         } else if (std.mem.eql(u8, statementFunc.name, "stop_cycling")) {
                             const a = try volPartFbs.reader().readByte();
                             self.agi_stop_cycling(a);
@@ -659,7 +703,7 @@ pub const VM = struct {
     }
 
     pub fn agi_test_equalv(self: *VM, varNo1: usize, varNo2: usize) bool {
-        return self.agi_test_equaln(self, varNo1, self.vars[varNo2]);
+        return self.agi_test_equaln(varNo1, self.vars[varNo2]);
     }
 
     pub fn agi_test_greatern(self: *VM, varNo: usize, val: u8) bool {
@@ -668,6 +712,21 @@ pub const VM = struct {
 
     pub fn agi_test_isset(self: *VM, flagNo: usize) bool {
         return self.flags[flagNo];
+    }
+
+    pub fn agi_test_controller(_: *VM, _: u8) bool {
+        return false;
+    }
+
+    fn agi_test_have_key(self: *VM) bool {
+        var hk = self.haveKey;
+        self.haveKey = false;
+        return hk;
+    }
+
+    fn agi_test_said(_: *VM, args: []const u16) bool {
+        std.log.info("agi_test_said({any}) invoked...", .{args});
+        return false;
     }
 
     // AGI Statement invocations.
@@ -685,8 +744,8 @@ pub const VM = struct {
         std.log.info("agi_assignn({d}:varNo, {d}:num);", .{ varNo, num });
     }
 
-    pub fn agi_assignv(self: *VM, varNo1: usize, varNo2: usize) void {
-        self.agi_assignn(self, varNo1, self.vars[varNo2]);
+    pub fn agi_assignv(self: *VM, varNo1: u8, varNo2: u8) void {
+        self.agi_assignn(varNo1, self.vars[varNo2]);
         std.log.info("agi_assignv({d}:varNo, {d}:num);", .{ varNo1, varNo2 });
     }
 
@@ -996,5 +1055,17 @@ pub const VM = struct {
 
     pub fn agi_normal_cycle(self: *VM, objNo: u8) void {
         self.gameObjects[objNo].reverseCycle = false;
+    }
+
+    pub fn agi_currentview(self: *VM, objNo: u8, varNo: u8) void {
+        self.vars[varNo] = self.gameObjects[objNo].viewNo;
+    }
+
+    fn agi_program_control(self: *VM) void {
+        self.programControl = true;
+    }
+
+    fn agi_player_control(self: *VM) void {
+        self.programControl = false;
     }
 };

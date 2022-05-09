@@ -25,7 +25,7 @@ const TOTAL_CONTROLLERS: usize = 256;
 
 const TOTAL_GAME_OBJS: usize = 16; // also called screen objs.
 
-const LOGIC_STACK_SIZE: usize = 255; // Arbitrary size has been chose of 255, I don't expect to exceed it with tech from 1980s.
+const LOGIC_STACK_SIZE: usize = 255; // Arbitrary size has been chosen of 255, I don't expect to exceed it with tech from 1980s.
 const DIR_INDEX_SIZE: usize = 300;
 
 const DirectoryIndex = struct {

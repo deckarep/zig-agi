@@ -6,7 +6,6 @@ const go = @import("game_object.zig");
 const hlp = @import("raylib_helpers.zig");
 const cmds = @import("agi_cmds.zig");
 const agi_vm = @import("vm.zig");
-const timer = @import("sys_timers.zig");
 
 var prng = std.rand.DefaultPrng.init(0);
 const rand = prng.random();
@@ -69,16 +68,8 @@ pub fn main() anyerror!void {
     const larry = c.LoadTexture("test-agi-game/extracted/view/0_1_2.png");
     defer c.UnloadTexture(larry);
 
-    // TODO: perhaps dependency inject the timer into the vmInstance before calling start.
-    // TODO: tune the Timer such that it's roughly accurate
-    // TODO: upon doing VM VAR reads where the timers redirect to the respective VM_Timer (sec, min, hrs, days) methods.
-    var t = try timer.VM_Timer.init();
-    try t.start();
-    defer t.deinit();
-    
-    vmInstance.vm_start();
-
-
+    try vmInstance.vm_start();
+    defer vmInstance.deinit();
 
     // var target = c.LoadRenderTexture(1280, 672);
     // c.BeginTextureMode(target);
@@ -115,6 +106,9 @@ pub fn main() anyerror!void {
 
         const varSet = [_]monVar{
             .{ .name = "elapsedSeconds", .idx = 11 },
+            .{ .name = "elapsedMin", .idx = 12 },
+            .{ .name = "elapsedHrs", .idx = 13 },
+            .{ .name = "elapsedDays", .idx = 14 },
             .{ .name = "passInRoom", .idx = 62 },
             .{ .name = "script", .idx = 65 },
             .{ .name = "scriptCycles", .idx = 66 },
@@ -178,7 +172,7 @@ fn moniterVarSet(vars: []const monVar) !void {
         //defer allocator.free(cstr);
 
         // NOTE: need to pass pointer child-type hence the .ptr or else get C ABI Zig bug.  :shrug:
-        const symbol = c.TextFormat("%s: %03i => %03i", v.name.ptr, v.idx, vmInstance.vars[v.idx]);
+        const symbol = c.TextFormat("%s: %03i => %03i", v.name.ptr, v.idx, vmInstance.read_var(v.idx));
         c.DrawText(symbol, xOffset, yOffset + (@intCast(c_int, i) * 16), size, c.WHITE);
         i += 1;
     }
@@ -191,7 +185,7 @@ const monFlag = struct {
 
 fn moniterFlagSet(flags: []const monFlag) !void {
     const xOffset = 10;
-    const yOffset = 100;
+    const yOffset = 200;
     const size = 15;
 
     var i: usize = 0;

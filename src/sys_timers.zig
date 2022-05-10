@@ -68,7 +68,7 @@ pub const VM_Timer = struct {
         return self.aSeconds.load(std.atomic.Ordering.Monotonic);
     }
 
-    pub fn min(self: *VM_Timer) u8 {
+    pub fn mins(self: *VM_Timer) u8 {
         return self.aMinutes.load(std.atomic.Ordering.Monotonic);
     }
 
@@ -83,5 +83,6 @@ pub const VM_Timer = struct {
     pub fn deinit(self: *VM_Timer) void {
         self.state.store(TimerState.Shutdown, std.atomic.Ordering.Monotonic);
         self.threadHandle.join();
+        std.log.info("vm_timer shutdown successfully...", .{});
     }
 };

@@ -3,43 +3,43 @@ pub const agi_test_tuple = struct {
     arity: i8,
 };
 
-// TODO: turn these into usable enum definitions from Zig-land.
-
 // /**
 //  * AGI variables. (VM dedicated Vars Pulled from ScummVM)
 //  */
-// enum {
-// 	VM_VAR_CURRENT_ROOM = 0,        // 0
-// 	VM_VAR_PREVIOUS_ROOM,           // 1
-// 	VM_VAR_BORDER_TOUCH_EGO,        // 2
-// 	VM_VAR_SCORE,                   // 3
-// 	VM_VAR_BORDER_CODE,             // 4
-// 	VM_VAR_BORDER_TOUCH_OBJECT,     // 5
-// 	VM_VAR_EGO_DIRECTION,           // 6
-// 	VM_VAR_MAX_SCORE,               // 7
-// 	VM_VAR_FREE_PAGES,              // 8
-// 	VM_VAR_WORD_NOT_FOUND,          // 9
-// 	VM_VAR_TIME_DELAY,              // 10
-// 	VM_VAR_SECONDS,                 // 11
-// 	VM_VAR_MINUTES,                 // 12
-// 	VM_VAR_HOURS,                   // 13
-// 	VM_VAR_DAYS,                    // 14
-// 	VM_VAR_JOYSTICK_SENSITIVITY,    // 15
-// 	VM_VAR_EGO_VIEW_RESOURCE,       // 16
-// 	VM_VAR_AGI_ERROR_CODE,          // 17
-// 	VM_VAR_AGI_ERROR_INFO,          // 18
-// 	VM_VAR_KEY,                     // 19
-// 	VM_VAR_COMPUTER,                // 20
-// 	VM_VAR_WINDOW_AUTO_CLOSE_TIMER, // 21
-// 	VM_VAR_SOUNDGENERATOR,          // 22
-// 	VM_VAR_VOLUME,                  // 23
-// 	VM_VAR_MAX_INPUT_CHARACTERS,    // 24
-// 	VM_VAR_SELECTED_INVENTORY_ITEM, // 25
-// 	VM_VAR_MONITOR = 26,            // 26
-// 	VM_VAR_MOUSE_BUTTONSTATE = 27,  // 27
-// 	VM_VAR_MOUSE_X = 28,            // 28
-// 	VM_VAR_MOUSE_Y = 29             // 29
-// };
+pub const VM_VARS = enum(usize) {
+    CURRENT_ROOM = 0, // 0
+    PREVIOUS_ROOM, // 1
+    BORDER_TOUCH_EGO, // 2
+    SCORE, // 3
+    BORDER_CODE, // 4
+    BORDER_TOUCH_OBJECT, // 5
+    EGO_DIRECTION, // 6
+    MAX_SCORE, // 7
+    FREE_PAGES, // 8
+    WORD_NOT_FOUND, // 9
+    TIME_DELAY, // 10
+    SECONDS, // 11
+    MINUTES, // 12
+    HOURS, // 13
+    DAYS, // 14
+    JOYSTICK_SENSITIVITY, // 15
+    EGO_VIEW_RESOURCE, // 16
+    AGI_ERROR_CODE, // 17
+    AGI_ERROR_INFO, // 18
+    KEY, // 19
+    COMPUTER, // 20
+    WINDOW_AUTO_CLOSE_TIMER, // 21
+    SOUNDGENERATOR, // 22
+    VOLUME, // 23
+    MAX_INPUT_CHARACTERS, // 24
+    SELECTED_INVENTORY_ITEM, // 25
+    MONITOR = 26, // 26
+    MOUSE_BUTTONSTATE = 27, // 27
+    MOUSE_X = 28, // 28
+    MOUSE_Y = 29, // 29
+};
+
+// TODO: turn these into usable enum definitions from Zig-land.
 
 // /**
 //  * AGI flags (VM flags pulled from ScummVM)

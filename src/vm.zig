@@ -6,6 +6,7 @@ const cmds = @import("agi_cmds.zig");
 const hlp = @import("raylib_helpers.zig");
 
 const clib = @import("c_defs.zig").c;
+const timer = @import("sys_timers.zig");
 
 // HACK zone, just doing a quick and dirty comptime embed file.
 const rootPath = "/Users/deckarep/Desktop/ralph-agi/test-agi-game/";
@@ -94,9 +95,11 @@ pub const VM = struct {
     picIndex: [DIR_INDEX_SIZE]DirectoryIndex,
     viewIndex: [DIR_INDEX_SIZE]DirectoryIndex,
 
+    vmTimer: timer.VM_Timer,
+
     // init creates a new instance of an AGI VM.
     pub fn init() VM {
-        var myVM = VM{ .logicIndex = undefined, .picIndex = undefined, .viewIndex = undefined, .logicStack = std.mem.zeroes([LOGIC_STACK_SIZE]u8), .logicStackPtr = 0, .activeLogicNo = 0, .newroom = 0, .horizon = 0, .allowInput = false, .haveKey = false, .programControl = false, .vars = std.mem.zeroes([TOTAL_VARS]u8), .flags = std.mem.zeroes([TOTAL_FLAGS]bool), .gameObjects = std.mem.zeroes([TOTAL_GAME_OBJS]go.GameObject) };
+        var myVM = VM{ .vmTimer = undefined, .logicIndex = undefined, .picIndex = undefined, .viewIndex = undefined, .logicStack = std.mem.zeroes([LOGIC_STACK_SIZE]u8), .logicStackPtr = 0, .activeLogicNo = 0, .newroom = 0, .horizon = 0, .allowInput = false, .haveKey = false, .programControl = false, .vars = std.mem.zeroes([TOTAL_VARS]u8), .flags = std.mem.zeroes([TOTAL_FLAGS]bool), .gameObjects = std.mem.zeroes([TOTAL_GAME_OBJS]go.GameObject) };
         return myVM;
     }
 
@@ -107,7 +110,13 @@ pub const VM = struct {
         self.viewIndex = try buildDirIndex(viewDirFile);
     }
 
-    pub fn vm_start(self: *VM) void {
+    pub fn vm_start(self: *VM) !void {
+        // TODO: perhaps dependency inject the timer into the vmInstance before calling start.
+        // TODO: tune the Timer such that it's roughly accurate
+        // TODO: upon doing VM VAR reads where the timers redirect to the respective VM_Timer (sec, min, hrs, days) methods.
+        self.vmTimer = try timer.VM_Timer.init();
+        try self.vmTimer.start();
+
         // Reset all state here.
         // for (var i = 0; i < 255; i++) {
         //     this.variables[i] = 0;
@@ -125,6 +134,10 @@ pub const VM = struct {
 
         self.agi_unanimate_all();
         //self.agi_load_logic(0);
+    }
+
+    pub fn deinit(self: *VM) void {
+        defer self.vmTimer.deinit();
     }
 
     pub fn vm_reset(self: *VM) void {
@@ -147,6 +160,16 @@ pub const VM = struct {
             self.flags[6] = false;
             self.flags[12] = false;
 
+            var i: usize = 0;
+            while (i < self.gameObjects.len) : (i += 1) {
+                var obj = &self.gameObjects[i];
+                if (obj.update) {
+                    if (i == 0) {
+                        //obj.direction = egoDir;
+                    }
+                    try self.vm_updateObject(i, obj);
+                }
+            }
             // for (var j = 0; j < this.gameObjects.length; j++) {
             //     var obj = this.gameObjects[j];
             //     if (obj.update) {
@@ -207,6 +230,88 @@ pub const VM = struct {
 
         // TODO: copy frame over.
         // self.bltFrame();
+    }
+
+    fn vm_updateObject(self: *VM, idx: usize, obj: *go.GameObject) !void {
+        if (obj.draw) {
+            obj.oldX = obj.x;
+            obj.oldY = obj.y;
+            // TODO: do all motion updates
+            std.log.info("updating objNo:{d}, gameObj:{any}", .{ idx, obj });
+
+            var xStep = obj.stepSize;
+            var yStep = obj.stepSize;
+
+            switch (obj.movementFlag) {
+                go.MovementFlags.MoveTo => {
+                    if (obj.moveToStep != 0) {
+                        xStep = obj.moveToStep;
+                        yStep = obj.moveToStep;
+                    }
+                    if (obj.moveToX > obj.x) {
+                        if (obj.moveToY > obj.y) {
+                            obj.direction = go.Direction.DownRight;
+                        } else if (obj.moveToY < obj.y) {
+                            obj.direction = go.Direction.UpRight;
+                        } else {
+                            obj.direction = go.Direction.Right;
+                        }
+                    } else if (obj.moveToX < obj.x) {
+                        if (obj.moveToY > obj.y) {
+                            obj.direction = go.Direction.DownLeft;
+                        } else if (obj.moveToY < obj.y) {
+                            obj.direction = go.Direction.UpLeft;
+                        } else {
+                            obj.direction = go.Direction.Left;
+                        }
+                    } else {
+                        if (obj.moveToY > obj.y) {
+                            obj.direction = go.Direction.Down;
+                        } else if (obj.moveToY < obj.y) {
+                            obj.direction = go.Direction.Up;
+                        }
+                    }
+
+                    // Some ugliness that could potentially be reduced to simpler code but Zig is so strict which is a good thing.
+                    const absXStep = @intCast(u32, try std.math.absInt(@intCast(i32, @intCast(i32, obj.x) - @intCast(i32, obj.moveToX))));
+                    const absYStep = @intCast(u32, try std.math.absInt(@intCast(i32, @intCast(i32, obj.y) - @intCast(i32, obj.moveToY))));
+                    xStep = std.math.min(xStep, @truncate(u8, absXStep));
+                    yStep = std.math.min(yStep, @truncate(u8, absYStep));
+                },
+                else => {
+                    //TODO: other Motion Flag Types
+                },
+            }
+
+            var newX = obj.x;
+            var newY = obj.y;
+
+            if (obj.direction == go.Direction.Up or obj.direction == go.Direction.UpRight or obj.direction == go.Direction.UpLeft) {
+                newY = obj.y - yStep;
+            } else if (obj.direction == go.Direction.Down or obj.direction == go.Direction.DownLeft or obj.direction == go.Direction.DownRight) {
+                newY = obj.y + yStep;
+            }
+
+            if (obj.direction == go.Direction.Left or obj.direction == go.Direction.UpLeft or obj.direction == go.Direction.DownLeft) {
+                newX = obj.x - xStep;
+            } else if (obj.direction == go.Direction.Right or obj.direction == go.Direction.UpRight or obj.direction == go.Direction.DownRight) {
+                newX = obj.x + xStep;
+            }
+
+            obj.x = newX;
+            obj.y = newY;
+
+            if ((obj.movementFlag == go.MovementFlags.MoveTo) and (obj.x == obj.moveToX) and (obj.y == obj.moveToY)) {
+                obj.direction = go.Direction.Stopped;
+                // TODO: use a proper setter func like: self.write_flag(idx) = state;
+                self.flags[obj.flagToSetWhenFinished] = true;
+                obj.movementFlag = go.MovementFlags.Normal;
+            }
+
+            clib.DrawRectangle(obj.x, obj.y, 50, 50, clib.WHITE);
+
+            // TODO: followed by blitting to the respective view to the screen.
+        }
     }
 
     pub fn vm_exec_logic(self: *VM, idx: usize, vol: usize, offset: u32) VMError!void {
@@ -471,6 +576,16 @@ pub const VM = struct {
                             const b = try volPartFbs.reader().readByte();
                             const c = try volPartFbs.reader().readByte();
                             self.agi_clear_lines(a, b, c);
+                        } else if (std.mem.eql(u8, statementFunc.name, "display")) {
+                            const a = try volPartFbs.reader().readByte();
+                            const b = try volPartFbs.reader().readByte();
+                            const c = try volPartFbs.reader().readByte();
+                            self.agi_display(a, b, c);
+                        } else if (std.mem.eql(u8, statementFunc.name, "display_v")) {
+                            const a = try volPartFbs.reader().readByte();
+                            const b = try volPartFbs.reader().readByte();
+                            const c = try volPartFbs.reader().readByte();
+                            self.agi_display_v(a, b, c);
                         } else if (std.mem.eql(u8, statementFunc.name, "set")) {
                             const a = try volPartFbs.reader().readByte();
                             self.agi_set(a);
@@ -512,6 +627,16 @@ pub const VM = struct {
                             const b = try volPartFbs.reader().readByte();
                             const c = try volPartFbs.reader().readByte();
                             self.agi_position_v(a, b, c);
+                        } else if (std.mem.eql(u8, statementFunc.name, "reposition_to")) {
+                            const a = try volPartFbs.reader().readByte();
+                            const b = try volPartFbs.reader().readByte();
+                            const c = try volPartFbs.reader().readByte();
+                            self.agi_reposition_to(a, b, c);
+                        } else if (std.mem.eql(u8, statementFunc.name, "reposition_to_v")) {
+                            const a = try volPartFbs.reader().readByte();
+                            const b = try volPartFbs.reader().readByte();
+                            const c = try volPartFbs.reader().readByte();
+                            self.agi_reposition_to_v(a, b, c);
                         } else if (std.mem.eql(u8, statementFunc.name, "observe_blocks")) {
                             const a = try volPartFbs.reader().readByte();
                             self.agi_observe_blocks(a);
@@ -524,6 +649,12 @@ pub const VM = struct {
                         } else if (std.mem.eql(u8, statementFunc.name, "observe_horizon")) {
                             const a = try volPartFbs.reader().readByte();
                             self.agi_observe_horizon(a);
+                        } else if (std.mem.eql(u8, statementFunc.name, "fix_loop")) {
+                            const a = try volPartFbs.reader().readByte();
+                            self.agi_fix_loop(a);
+                        } else if (std.mem.eql(u8, statementFunc.name, "release_loop")) {
+                            const a = try volPartFbs.reader().readByte();
+                            self.agi_release_loop(a);
                         } else if (std.mem.eql(u8, statementFunc.name, "lindirectn")) {
                             const a = try volPartFbs.reader().readByte();
                             const b = try volPartFbs.reader().readByte();
@@ -560,6 +691,9 @@ pub const VM = struct {
                         } else if (std.mem.eql(u8, statementFunc.name, "draw_pic")) {
                             const a = try volPartFbs.reader().readByte();
                             self.agi_draw_pic(a);
+                        } else if (std.mem.eql(u8, statementFunc.name, "draw")) {
+                            const a = try volPartFbs.reader().readByte();
+                            self.agi_draw(a);
                         } else if (std.mem.eql(u8, statementFunc.name, "discard_pic")) {
                             const a = try volPartFbs.reader().readByte();
                             self.agi_discard_pic(a);
@@ -606,6 +740,9 @@ pub const VM = struct {
                         } else if (std.mem.eql(u8, statementFunc.name, "start_cycling")) {
                             const a = try volPartFbs.reader().readByte();
                             self.agi_start_cycling(a);
+                        } else if (std.mem.eql(u8, statementFunc.name, "erase")) {
+                            const a = try volPartFbs.reader().readByte();
+                            self.agi_erase(a);
                         } else if (std.mem.eql(u8, statementFunc.name, "stop_cycling")) {
                             const a = try volPartFbs.reader().readByte();
                             self.agi_stop_cycling(a);
@@ -618,6 +755,13 @@ pub const VM = struct {
                             const f = try volPartFbs.reader().readByte();
                             const g = try volPartFbs.reader().readByte();
                             self.agi_add_to_pic(a, b, c, d, e, f, g);
+                        } else if (std.mem.eql(u8, statementFunc.name, "move_obj")) {
+                            const a = try volPartFbs.reader().readByte();
+                            const b = try volPartFbs.reader().readByte();
+                            const c = try volPartFbs.reader().readByte();
+                            const d = try volPartFbs.reader().readByte();
+                            const e = try volPartFbs.reader().readByte();
+                            self.agi_move_obj(a, b, c, d, e);
                         } else if (std.mem.eql(u8, statementFunc.name, "xxx")) {
                             // template.
                         } else {
@@ -701,17 +845,40 @@ pub const VM = struct {
         std.os.exit(statusCode);
     }
 
+    pub fn read_var(self: *VM, varNo: usize) u8 {
+        // We intercept reads to the following declared switch to cope with intrinsic vars such as timers.
+        // NOTE: should the values below get set, the VM will still do it...but not return the data since this is intercepted on read.
+        if ((varNo > 0) and (varNo <= 29)) {
+            switch (@intToEnum(cmds.VM_VARS, varNo)) {
+                cmds.VM_VARS.SECONDS => return self.vmTimer.secs(),
+                cmds.VM_VARS.MINUTES => return self.vmTimer.mins(),
+                cmds.VM_VARS.HOURS => return self.vmTimer.hrs(),
+                cmds.VM_VARS.DAYS => return self.vmTimer.days(),
+                else => return self.vars[varNo],
+            }
+        }
+
+        return self.vars[varNo];
+    }
+
+    // TODO: we should gate all reads and writes to better control vm state.
+    // TODO: write_var
+    //fn write_var(self: *VM, varNo: usize) void {}
+
+    // TODO: read_flag
+    // TODO: write_flag
+
     // AGI Test invocations.
     pub fn agi_test_equaln(self: *VM, varNo: usize, val: u8) bool {
-        return self.vars[varNo] == val;
+        return self.read_var(varNo) == val;
     }
 
     pub fn agi_test_equalv(self: *VM, varNo1: usize, varNo2: usize) bool {
-        return self.agi_test_equaln(varNo1, self.vars[varNo2]);
+        return self.agi_test_equaln(varNo1, self.read_var(varNo2));
     }
 
     pub fn agi_test_greatern(self: *VM, varNo: usize, val: u8) bool {
-        return self.vars[varNo] > val;
+        return self.read_var(varNo) > val;
     }
 
     pub fn agi_test_isset(self: *VM, flagNo: usize) bool {
@@ -740,7 +907,7 @@ pub const VM = struct {
     }
 
     pub fn agi_new_room_v(self: *VM, varNo: usize) void {
-        agi_new_room(self.vars[varNo]);
+        agi_new_room(self.read_var(varNo));
     }
 
     pub fn agi_assignn(self: *VM, varNo: u8, num: u8) void {
@@ -749,7 +916,7 @@ pub const VM = struct {
     }
 
     pub fn agi_assignv(self: *VM, varNo1: u8, varNo2: u8) void {
-        self.agi_assignn(varNo1, self.vars[varNo2]);
+        self.agi_assignn(varNo1, self.read_var(varNo2));
         std.log.info("agi_assignv({d}:varNo, {d}:num);", .{ varNo1, varNo2 });
     }
 
@@ -787,7 +954,7 @@ pub const VM = struct {
     }
 
     pub fn agi_call_v(self: *VM, varNo: usize) !void {
-        try self.agi_call(self.vars[varNo]);
+        try self.agi_call(self.read_var(varNo));
     }
 
     pub fn agi_quit(_: *VM, statusCode: u8) void {
@@ -801,18 +968,18 @@ pub const VM = struct {
     }
 
     pub fn agi_load_logic_v(self: *VM, varNo: u8) void {
-        self.agi_load_logic(self.vars[varNo]);
+        self.agi_load_logic(self.read_var(varNo));
     }
 
     pub fn agi_increment(self: *VM, varNo: usize) void {
-        if (self.vars[varNo] < 255) {
+        if (self.read_var(varNo) < 255) {
             self.vars[varNo] += 1;
         }
         std.log.info("increment({d}:varNo) invoked to val: {d}", .{ varNo, self.vars[varNo] });
     }
 
     pub fn agi_decrement(self: *VM, varNo: usize) void {
-        if (self.vars[varNo] > 0) {
+        if (self.read_var(varNo) > 0) {
             self.vars[varNo] -= 1;
         }
     }
@@ -823,7 +990,7 @@ pub const VM = struct {
     }
 
     pub fn agi_setv(self: *VM, varNo: u8) void {
-        self.agi_set(self.vars[varNo]);
+        self.agi_set(self.read_var(varNo));
         std.log.info("agi_set(varNo:{d});", .{varNo});
     }
 
@@ -832,15 +999,16 @@ pub const VM = struct {
     }
 
     pub fn agi_reset_v(self: *VM, varNo: u8) void {
-        self.agi_reset(self.vars[varNo]);
+        self.agi_reset(self.read_var(varNo));
     }
 
     pub fn agi_addn(self: *VM, varNo: usize, num: u8) void {
+        // may overflow...might need to do a wrapping %
         self.vars[varNo] += num;
     }
 
     pub fn agi_addv(self: *VM, varNo1: usize, varNo2: usize) void {
-        agi_addn(varNo1, self.vars[varNo2]);
+        agi_addn(varNo1, self.read_var(varNo2));
     }
 
     pub fn agi_subn(self: *VM, varNo: usize, num: u8) void {
@@ -848,23 +1016,23 @@ pub const VM = struct {
     }
 
     pub fn agi_subv(self: *VM, varNo1: usize, varNo2: usize) void {
-        agi_subn(varNo1, self.vars[varNo2]);
+        agi_subn(varNo1, self.read_var(varNo2));
     }
 
     pub fn agi_muln(self: *VM, varNo: usize, val: u8) void {
-        self.vars[self.vars[varNo]] *= val;
+        self.vars[self.read_var(varNo)] *= val;
     }
 
     pub fn agi_mulv(self: *VM, varNo1: usize, varNo2: usize) void {
-        agi_muln(varNo1, self.vars[varNo2]);
+        agi_muln(varNo1, self.read_var(varNo2));
     }
 
     pub fn agi_divn(self: *VM, varNo: usize, val: u8) void {
-        self.vars[self.vars[varNo]] /= val;
+        self.vars[self.read_var(varNo)] /= val;
     }
 
     pub fn agi_divv(self: *VM, varNo1: usize, varNo2: usize) void {
-        agi_divn(varNo1, self.vars[varNo2]);
+        agi_divn(varNo1, self.read_var(varNo2));
     }
 
     pub fn agi_force_update(self: *VM, objNum: u8) void {
@@ -891,21 +1059,30 @@ pub const VM = struct {
         self.gameObjects = std.mem.zeroes([TOTAL_GAME_OBJS]go.GameObject);
     }
 
-    pub fn agi_animate_obj(_: *VM, objNo: u8) void {
+    pub fn agi_animate_obj(self: *VM, objNo: u8) void {
+        // TODO: proper initialization of struct data to mimic a NEW instantiation with data inited to below.
+        // FOR NOW, I'll just hack it in.
         //self.gameObjects[objNo] = new GameObject();
-        std.log.info("agi_animate_obj({d}) invoked", .{objNo});
+        self.gameObjects[objNo].update = true;
+        self.gameObjects[objNo].movementFlag = go.MovementFlags.Normal;
+        self.gameObjects[objNo].direction = go.Direction.Stopped;
+        self.gameObjects[objNo].cycleTime = 1;
+        self.gameObjects[objNo].stepSize = 1;
+        self.gameObjects[objNo].nextCycle = 1;
+
+        //std.log.info("agi_animate_obj({d}) invoked", .{objNo});
     }
 
     pub fn agi_step_size(self: *VM, objNo: u8, varNo: u8) void {
-        self.gameObjects[objNo].stepSize = self.vars[varNo];
+        self.gameObjects[objNo].stepSize = self.read_var(varNo);
     }
 
     pub fn agi_step_time(self: *VM, objNo: u8, varNo: u8) void {
-        self.gameObjects[objNo].stepTime = self.vars[varNo];
+        self.gameObjects[objNo].stepTime = self.read_var(varNo);
     }
 
     pub fn agi_cycle_time(self: *VM, objNo: u8, varNo: u8) void {
-        self.gameObjects[objNo].cycleTime = self.vars[varNo];
+        self.gameObjects[objNo].cycleTime = self.read_var(varNo);
     }
 
     pub fn agi_get_posn(self: *VM, objNo: u8, varNo1: u8, varNo2: u8) void {
@@ -930,7 +1107,7 @@ pub const VM = struct {
     }
 
     pub fn agi_lindirectn(self: *VM, varNo: u8, val: u8) void {
-        self.vars[self.vars[varNo]] = val;
+        self.vars[self.read_var(varNo)] = val;
     }
 
     pub fn agi_set_view(self: *VM, objNo: u8, viewNo: u8) void {
@@ -941,7 +1118,7 @@ pub const VM = struct {
     }
 
     pub fn agi_set_view_v(self: *VM, objNo: u8, varNo: u8) void {
-        self.agi_set_view(objNo, self.vars[varNo]);
+        self.agi_set_view(objNo, self.read_var(varNo));
     }
 
     pub fn agi_load_view(_: *VM, viewNo: u8) void {
@@ -953,7 +1130,7 @@ pub const VM = struct {
     }
 
     pub fn agi_load_view_v(self: *VM, varNo: u8) void {
-        self.agi_load_view(self.vars[varNo]);
+        self.agi_load_view(self.read_var(varNo));
     }
 
     pub fn agi_set_horizon(self: *VM, y: u8) void {
@@ -973,7 +1150,7 @@ pub const VM = struct {
     }
 
     pub fn agi_load_pic(self: *VM, varNo: u8) void {
-        const picNo = self.vars[varNo];
+        const picNo = self.read_var(varNo);
         std.log.info("agi_load_pic({d}) (picNo:{d})invoked...", .{ varNo, picNo });
         // this.loadedPics[picNo] = new Pic(Resources.readAgiResource(Resources.AgiResource.Pic, picNo));
     }
@@ -985,14 +1162,18 @@ pub const VM = struct {
         std.log.info("agi_draw_pic({d})", .{varNo});
     }
 
+    pub fn agi_draw(self: *VM, objNo: u8) void {
+        self.gameObjects[objNo].draw = true;
+    }
+
     pub fn agi_overlay_pic(self: *VM, varNo: u8) void {
-        const picNo = self.vars[varNo];
+        const picNo = self.read_var(varNo);
         std.log.info("agi_overlay_pic({d}) (picNo:{d})invoked...", .{ varNo, picNo });
         //this.loadedPics[picNo].draw(this.visualBuffer, this.priorityBuffer);
     }
 
     pub fn agi_discard_pic(self: *VM, varNo: u8) void {
-        const picNo = self.vars[varNo];
+        const picNo = self.read_var(varNo);
         std.log.info("agi_discard_pic({d}) (picNo:{d})invoked...", .{ varNo, picNo });
         //this.loadedPics[picNo] = null;
     }
@@ -1004,7 +1185,7 @@ pub const VM = struct {
     }
 
     pub fn agi_add_to_pic_v(self: *VM, varNo1: u8, varNo2: u8, varNo3: u8, varNo4: u8, varNo5: u8, varNo6: u8, varNo7: u8) void {
-        self.agi_add_to_pic(self.vars[varNo1], self.vars[varNo2], self.vars[varNo3], self.vars[varNo4], self.vars[varNo5], self.vars[varNo6], self.vars[varNo7]);
+        self.agi_add_to_pic(self.read_var(varNo1), self.read_var(varNo2), self.read_var(varNo3), self.read_var(varNo4), self.read_var(varNo5), self.read_var(varNo6), self.read_var(varNo7));
     }
 
     pub fn agi_show_pic(_: *VM) void {
@@ -1020,7 +1201,7 @@ pub const VM = struct {
     }
 
     pub fn agi_set_loop_v(self: *VM, objNo: u8, varNo: u8) void {
-        self.agi_set_loop(objNo, self.vars[varNo]);
+        self.agi_set_loop(objNo, self.read_var(varNo));
     }
 
     pub fn agi_position(self: *VM, objNo: u8, x: u8, y: u8) void {
@@ -1029,7 +1210,15 @@ pub const VM = struct {
     }
 
     pub fn agi_position_v(self: *VM, objNo: u8, varNo1: u8, varNo2: u8) void {
-        self.agi_position(objNo, self.vars[varNo1], self.vars[varNo2]);
+        self.agi_position(objNo, self.read_var(varNo1), self.read_var(varNo2));
+    }
+
+    fn agi_set_dir(self: *VM, objNo: u8, varNo: u8) void {
+        self.gameObjects[objNo].direction = self.read_var(varNo);
+    }
+
+    fn agi_get_dir(self: *VM, objNo: u8, varNo: u8) void {
+        self.vars[varNo] = self.gameObjects[objNo].direction;
     }
 
     pub fn agi_set_cel(self: *VM, objNo: u8, celNo: u8) void {
@@ -1038,7 +1227,7 @@ pub const VM = struct {
     }
 
     pub fn agi_set_cel_v(self: *VM, objNo: u8, varNo: u8) void {
-        self.agi_set_cel(objNo, self.vars[varNo]);
+        self.agi_set_cel(objNo, self.read_var(varNo));
     }
 
     pub fn agi_set_priority(self: *VM, objNo: u8, priority: u8) void {
@@ -1047,7 +1236,7 @@ pub const VM = struct {
     }
 
     pub fn agi_set_priority_v(self: *VM, objNo: u8, varNo: u8) void {
-        self.agi_set_priority(objNo, self.vars[varNo]);
+        self.agi_set_priority(objNo, self.read_var(varNo));
     }
 
     pub fn agi_stop_cycling(self: *VM, objNo: u8) void {
@@ -1062,6 +1251,10 @@ pub const VM = struct {
         self.gameObjects[objNo].reverseCycle = false;
     }
 
+    pub fn agi_normal_motion(self: *VM, objNo: u8) void {
+        self.gameObjects[objNo].motion = true;
+    }
+
     pub fn agi_currentview(self: *VM, objNo: u8, varNo: u8) void {
         self.vars[varNo] = self.gameObjects[objNo].viewNo;
     }
@@ -1072,5 +1265,64 @@ pub const VM = struct {
 
     fn agi_player_control(self: *VM) void {
         self.programControl = false;
+    }
+
+    fn agi_move_obj(self: *VM, objNo: u8, x: u8, y: u8, stepSpeed: u8, flagNo: u8) void {
+        self.gameObjects[objNo].moveToX = x;
+        self.gameObjects[objNo].moveToY = y;
+        self.gameObjects[objNo].moveToStep = stepSpeed;
+        self.gameObjects[objNo].movementFlag = go.MovementFlags.MoveTo;
+        self.gameObjects[objNo].flagToSetWhenFinished = flagNo;
+    }
+
+    fn agi_display(_: *VM, row: u8, col: u8, msg: u8) void {
+        std.log.info("agi_display({d}:row, {d}:col, {d}:msg) invoked...", .{ row, col, msg });
+        //this.screen.bltText(row, col, this.loadedLogics[this.logicNo].logic.messages[msg]);
+    }
+
+    fn agi_display_v(self: *VM, varNo1: u8, varNo2: u8, varNo3: u8) void {
+        self.agi_display(self.read_var(varNo1), self.read_var(varNo2), self.read_var(varNo3));
+    }
+
+    fn agi_fix_loop(self: *VM, objNo: u8) void {
+        self.gameObjects[objNo].fixedLoop = true;
+    }
+
+    fn agi_release_loop(self: *VM, objNo: u8) void {
+        self.gameObjects[objNo].fixedLoop = false;
+    }
+
+    fn agi_erase(self: *VM, objNo: u8) void {
+        var obj = &self.gameObjects[objNo];
+        obj.draw = false;
+        obj.loop = 0;
+        obj.cel = 0;
+        //this.screen.clearView(obj.oldView, obj.oldLoop, obj.oldCel, obj.oldDrawX, obj.oldDrawY, obj.oldPriority);
+    }
+
+    fn agi_reposition_to(self: *VM, objNo: u8, x: u8, y: u8) void {
+        //var obj: GameObject = this.gameObjects[objNo]; (this line is uneeded but in the agi.js implementation)
+        self.agi_position(objNo, x, y);
+    }
+
+    fn agi_reposition_to_v(self: *VM, objNo: u8, varNo1: u8, varNo2: u8) void {
+        self.agi_reposition_to(objNo, self.read_var(varNo1), self.read_var(varNo2));
+    }
+
+    fn agi_follow_ego(self: *VM, objNo: u8, stepSpeed: u8, flagNo: u8) void {
+        var obj = &self.gameObjects[objNo];
+        obj.moveToStep = stepSpeed;
+        obj.flagToSetWhenFinished = flagNo;
+        obj.movementFlag = go.MovementFlags.ChaseEgo;
+    }
+
+    fn agi_wander(self: *VM, objNo: u8) void {
+        self.gameObjects[objNo].movementFlag = go.MovementFlags.Wander;
+        self.gameObjects[objNo].direction = 5; // TODO: this.randomBetween(1, 9);
+
+        if (objNo == 0) {
+            self.vars[6] = self.gameObjects[objNo].direction;
+            self.agi_program_control();
+        }
     }
 };

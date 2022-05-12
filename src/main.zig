@@ -127,6 +127,8 @@ pub fn main() anyerror!void {
 
         try vmInstance.vm_cycle();
 
+        //std.log.info("frame: {d}", .{c.GetFrameTime()});
+
         //const flags = [_]bool{ true, false, true, false, true, false, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, false };
         debugDrawVars(&vmInstance.vars);
         debugDrawFlags(&vmInstance.flags);

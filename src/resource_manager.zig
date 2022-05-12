@@ -235,8 +235,8 @@ pub const ResourceManager = struct {
     }
 
     pub fn ref_texture(self: *ResourceManager, key: ResourceKey) ?c.Texture {
-        var tempString = [_]u8{0} ** 300;
-        const k = std.fmt.bufPrint(tempString[0..], "{d} : {s}", .{ key.file_type, key.file_path }) catch unreachable;
+        var buf: [300]u8 = undefined;
+        const k = std.fmt.bufPrint(&buf, "{d} : {s}", .{ key.file_type, key.file_path }) catch unreachable;
 
         if (self.internal2.get(k)) |*foundTexture| {
             return foundTexture.resource.Texture;

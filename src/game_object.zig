@@ -17,7 +17,7 @@ pub const GameObject = struct {
     reverseCycle: bool,
     cycleTime: u8,
     celCycling: bool,
-    // callAtEndOfLoop: bool,
+    callAtEndOfLoop: bool,
     flagToSetWhenFinished: u8,
     ignoreHorizon: bool,
     ignoreBlocks: bool,
@@ -46,4 +46,42 @@ pub const GameObject = struct {
     // oldPriority: number = 0;
     // oldDrawX: number = 0;
     // oldDrawY: number = 0;
+
+    pub fn init() GameObject {
+        return GameObject{
+            .x = 0,
+            .y = 0,
+            .draw = false,
+            .direction = Direction.Stopped,
+            .viewNo = 0,
+            .loop = 0,
+            .cel = 0,
+            .fixedLoop = false,
+            .priority = 0,
+            .fixedPriority = false,
+            .reverseCycle = false,
+            .cycleTime = 1,
+            .celCycling = false,
+            .callAtEndOfLoop = false,
+            .flagToSetWhenFinished = 0,
+            .ignoreHorizon = false,
+            .ignoreBlocks = false,
+            .ignoreObjs = false,
+            .motion = false,
+            .stepSize = 1,
+            .stepTime = 0,
+
+            .moveToX = 0,
+            .moveToY = 0,
+            .moveToStep = 0,
+
+            .movementFlag = MovementFlags.Normal,
+
+            .update = true,
+            .nextCycle = 1,
+
+            .oldX = 0,
+            .oldY = 0,
+        };
+    }
 };

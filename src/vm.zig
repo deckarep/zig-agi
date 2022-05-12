@@ -81,9 +81,15 @@ fn buildDirIndex(dirFile: []const u8) ![DIR_INDEX_SIZE]DirectoryIndex {
     return index;
 }
 
+// const viewRecord = struct {
+//     loopNo: u8,
+//     celCount: u8,
+// };
+
 pub const VM = struct {
     debug: bool,
     resMan: rm.ResourceManager,
+    viewDB: [1000][20]u8, // backing array to field below.
 
     newroom: u8,
     horizon: u8,
@@ -106,7 +112,7 @@ pub const VM = struct {
 
     // init creates a new instance of an AGI VM.
     pub fn init(debugState: bool) VM {
-        var myVM = VM{ .debug = debugState, .resMan = undefined, .vmTimer = undefined, .logicIndex = undefined, .picIndex = undefined, .viewIndex = undefined, .logicStack = std.mem.zeroes([LOGIC_STACK_SIZE]u8), .logicStackPtr = 0, .activeLogicNo = 0, .newroom = 0, .horizon = 0, .allowInput = false, .haveKey = false, .programControl = false, .vars = std.mem.zeroes([TOTAL_VARS]u8), .flags = std.mem.zeroes([TOTAL_FLAGS]bool), .gameObjects = std.mem.zeroes([TOTAL_GAME_OBJS]go.GameObject) };
+        var myVM = VM{ .debug = debugState, .resMan = undefined, .viewDB = std.mem.zeroes([1000][20]u8), .vmTimer = undefined, .logicIndex = undefined, .picIndex = undefined, .viewIndex = undefined, .logicStack = std.mem.zeroes([LOGIC_STACK_SIZE]u8), .logicStackPtr = 0, .activeLogicNo = 0, .newroom = 0, .horizon = 0, .allowInput = false, .haveKey = false, .programControl = false, .vars = std.mem.zeroes([TOTAL_VARS]u8), .flags = std.mem.zeroes([TOTAL_FLAGS]bool), .gameObjects = std.mem.zeroes([TOTAL_GAME_OBJS]go.GameObject) };
         return myVM;
     }
 
@@ -319,52 +325,84 @@ pub const VM = struct {
                 obj.movementFlag = go.MovementFlags.Normal;
             }
 
-            // TODO: need to think this through because I don't have easy access to view loop/cell data.
             if (!obj.fixedLoop) {
-                //if (view.loops.length > 1 and view.loops.length < 4) {
-                if (obj.direction == go.Direction.UpRight or obj.direction == go.Direction.Right or obj.direction == go.Direction.DownRight or
-                    obj.direction == go.Direction.DownLeft or obj.direction == go.Direction.Left or obj.direction == go.Direction.UpLeft)
-                {
-                    obj.loop = 1;
+                const loopLength = self.vm_view_loop_count(obj.viewNo);
+                if (loopLength > 1 and loopLength < 4) {
+                    if (obj.direction == go.Direction.UpRight or obj.direction == go.Direction.Right or obj.direction == go.Direction.DownRight or
+                        obj.direction == go.Direction.DownLeft or obj.direction == go.Direction.Left or obj.direction == go.Direction.UpLeft)
+                    {
+                        obj.loop = 1;
+                    }
+                } else if (loopLength >= 4) {
+                    if (obj.direction == go.Direction.Up) {
+                        obj.loop = 3;
+                    } else if (obj.direction == go.Direction.UpRight or obj.direction == go.Direction.Right or obj.direction == go.Direction.DownRight) {
+                        obj.loop = 0;
+                    } else if (obj.direction == go.Direction.Down) {
+                        obj.loop = 2;
+                    } else if (obj.direction == go.Direction.DownLeft or obj.direction == go.Direction.Left or obj.direction == go.Direction.UpLeft) {
+                        obj.loop = 1;
+                    }
                 }
-                // } else if (view.loops.length >= 4) {
-                //     if (obj.direction == 1) {
-                //         obj.loop = 3;
-                //     } else if (obj.direction == 2 or obj.direction == 3 or obj.direction == 4) {
-                //         obj.loop = 0;
-                //     } else if (obj.direction == 5) {
-                //         obj.loop = 2;
-                //     } else if (obj.direction == 6 or obj.direction == 7 or obj.direction == 8) {
-                //         obj.loop = 1;
-                //     }
-                // }
             }
 
-            // NOTE: this code isn't quite right
-            // 1. need to draw the appropriate view/loop/cel
-            // 2. need to draw the correct sizing
-            // 3. need to do better key generation, and move it to a function for this crap.
-            try self.vm_draw_view(obj.viewNo, obj.loop, obj.cel, @intToFloat(f32, obj.x), @intToFloat(f32, obj.y));
-            // var tempString = [_]u8{0} ** 100;
-            // var fmtStr = try std.fmt.bufPrint(tempString[0..], "{s}{d}_0_0.png", .{ pathTextures, obj.viewNo });
-            // const texture = self.resMan.ref_texture(rm.WithKey(rm.ResourceTag.Texture, fmtStr));
+            if (obj.celCycling) {
+                //std.log.info("view is cycling... v:{d}, l:{d}, c:{d}", .{ obj.viewNo, obj.loop, obj.cel });
+                const celLength = @intCast(u8, self.vm_view_loop_cel_count(obj.viewNo, obj.loop));
+                if (obj.nextCycle == 1) {
+                    if (obj.reverseCycle) {
+                        obj.cel -= 1;
+                    } else {
+                        obj.cel += 1;
+                    }
+                    var endOfLoop = false;
+                    if (obj.cel < 0) {
+                        if (obj.callAtEndOfLoop) {
+                            obj.cel = 0;
+                        } else {
+                            obj.cel = celLength - 1;
+                        }
+                        endOfLoop = true;
+                    } else if (obj.cel > celLength - 1) {
+                        if (obj.callAtEndOfLoop) {
+                            obj.cel = celLength - 1;
+                        } else {
+                            obj.cel = 0;
+                        }
+                        endOfLoop = true;
+                    }
+                    if (endOfLoop and obj.callAtEndOfLoop) {
+                        obj.celCycling = false;
+                        self.flags[obj.flagToSetWhenFinished] = true;
+                    }
+                    obj.nextCycle = obj.cycleTime;
+                } else obj.nextCycle -= 1;
+            }
 
-            // if (texture) |txt| {
-            //     clib.DrawTexturePro(txt, hlp.rect(0, 0, @intToFloat(f32, txt.width), @intToFloat(f32, txt.height)), hlp.rect(@intToFloat(f32, obj.x), @intToFloat(f32, obj.y), @intToFloat(f32, txt.width), @intToFloat(f32, txt.height)), hlp.vec2(0, 0), 0, clib.WHITE);
-            // }
-            //clib.DrawRectangle(obj.x, obj.y, 50, 50, clib.WHITE);
-
-            // TODO: followed by blitting to the respective view to the screen.
+            // NOTE: this code is getting there.
+            // 1. need to draw the correct sizing/x,y placement for higher resolution assets (factor of 4 times bigger)
+            if (obj.viewNo == 44) {
+                try self.vm_draw_view(obj.viewNo, obj.loop, obj.cel, @intToFloat(f32, obj.x), @intToFloat(f32, obj.y));
+            }
         }
     }
 
+    fn vm_view_key(buffer: []u8, viewNo: u8, loop: u8, cel: u8) ![]u8 {
+        var fmtStr = try std.fmt.bufPrint(buffer[0..], "{s}{d}_{d}_{d}.png", .{ pathTextures, viewNo, loop, cel });
+        return fmtStr;
+    }
+
     pub fn vm_draw_view(self: *VM, viewNo: u8, loop: u8, cel: u8, x: f32, y: f32) anyerror!void {
-        var tempString = [_]u8{0} ** 100;
-        var fmtStr = try std.fmt.bufPrint(tempString[0..], "{s}{d}_{d}_{d}.png", .{ pathTextures, viewNo, loop, cel });
+        var buf: [100]u8 = undefined;
+        const fmtStr = try vm_view_key(&buf, viewNo, loop, cel);
         const texture = self.resMan.ref_texture(rm.WithKey(rm.ResourceTag.Texture, fmtStr));
 
         if (texture) |txt| {
-            clib.DrawTexturePro(txt, hlp.rect(0, 0, @intToFloat(f32, txt.width), @intToFloat(f32, txt.height)), hlp.rect(x * 4, y * 4, @intToFloat(f32, txt.width), @intToFloat(f32, txt.height)), hlp.vec2(0, 0), 0, clib.WHITE);
+            std.log.info("FOUND view:{d}, loop:{d}, cel:{d} => {s}", .{ viewNo, loop, cel, fmtStr });
+            clib.DrawTexturePro(txt, hlp.rect(0, 0, @intToFloat(f32, txt.width), @intToFloat(f32, txt.height)), hlp.rect(x, y, @intToFloat(f32, txt.width), @intToFloat(f32, txt.height)), hlp.vec2(0, 0), 0, clib.WHITE);
+        } else {
+            std.log.warn("NOT FOUND view:{d}, loop:{d}, cel:{d} => {s}", .{ viewNo, loop, cel, fmtStr });
+            std.os.exit(39);
         }
     }
 
@@ -1117,21 +1155,15 @@ pub const VM = struct {
     }
 
     pub fn agi_unanimate_all(self: *VM) void {
-        self.gameObjects = std.mem.zeroes([TOTAL_GAME_OBJS]go.GameObject);
+        var i: usize = 0;
+        while (i < TOTAL_GAME_OBJS) : (i += 1) {
+            self.gameObjects[i] = go.GameObject.init();
+        }
     }
 
     pub fn agi_animate_obj(self: *VM, objNo: u8) void {
-        // TODO: proper initialization of struct data to mimic a NEW instantiation with data inited to below.
-        // FOR NOW, I'll just hack it in.
-        //self.gameObjects[objNo] = new GameObject();
-        self.gameObjects[objNo].update = true;
-        self.gameObjects[objNo].movementFlag = go.MovementFlags.Normal;
-        self.gameObjects[objNo].direction = go.Direction.Stopped;
-        self.gameObjects[objNo].cycleTime = 1;
-        self.gameObjects[objNo].stepSize = 1;
-        self.gameObjects[objNo].nextCycle = 1;
-
-        //self.vm_log("agi_animate_obj({d}) invoked", .{objNo});
+        self.gameObjects[objNo] = go.GameObject.init();
+        std.log.info("agi_animate_obj({d}) invoked", .{objNo});
     }
 
     pub fn agi_step_size(self: *VM, objNo: u8, varNo: u8) void {
@@ -1144,6 +1176,7 @@ pub const VM = struct {
 
     pub fn agi_cycle_time(self: *VM, objNo: u8, varNo: u8) void {
         self.gameObjects[objNo].cycleTime = self.read_var(varNo);
+        std.log.info("agi_cycle_time({d}:objNo, {d}:varNo) invoked", .{ objNo, self.read_var(varNo) });
     }
 
     pub fn agi_get_posn(self: *VM, objNo: u8, varNo1: u8, varNo2: u8) void {
@@ -1208,12 +1241,34 @@ pub const VM = struct {
                 if (clib.FileExists(cstr)) {
                     _ = try self.resMan.add_texture(rm.WithKey(rm.ResourceTag.Texture, fmtStr));
                     self.vm_log("located view file: {s}", .{fmtStr});
+
+                    // Poor mans record of view/loop/cel entries, so we can easily query loop counts or cel counts per view.
+                    self.viewDB[viewNo][@intCast(u8, loopIndex)] += 1;
                 } else {
                     //std.log.info("view file NOT found: {s}", .{fmtStr});
                 }
             }
             cellIndex = 0;
         }
+    }
+
+    fn vm_reset_viewDB(self: *VM) void {
+        self.viewDB = std.mem.zeroes([1000][20]u8);
+    }
+
+    fn vm_view_loop_count(self: *VM, viewNo: usize) usize {
+        var i: usize = 0;
+        var counter: usize = 0;
+        while (i < self.viewDB[viewNo].len) : (i += 1) {
+            if (self.viewDB[viewNo][i] > 0) {
+                counter += 1;
+            }
+        }
+        return counter;
+    }
+
+    fn vm_view_loop_cel_count(self: *VM, viewNo: usize, loopNo: usize) usize {
+        return self.viewDB[viewNo][loopNo];
     }
 
     pub fn agi_load_view_v(self: *VM, varNo: u8) anyerror!void {
@@ -1328,6 +1383,7 @@ pub const VM = struct {
 
     pub fn agi_stop_cycling(self: *VM, objNo: u8) void {
         self.gameObjects[objNo].celCycling = false;
+        std.log.info("stop_cycling({d}:objNo)...", .{objNo});
     }
 
     pub fn agi_start_cycling(self: *VM, objNo: u8) void {

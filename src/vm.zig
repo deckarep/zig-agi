@@ -1,12 +1,19 @@
 const std = @import("std");
 const ArrayList = std.ArrayList;
 
+var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+const allocator = arena.allocator();
+
 const go = @import("game_object.zig");
 const cmds = @import("agi_cmds.zig");
 const hlp = @import("raylib_helpers.zig");
 
 const clib = @import("c_defs.zig").c;
 const timer = @import("sys_timers.zig");
+const rm = @import("resource_manager.zig");
+
+const pathTextures = "/Users/deckarep/Desktop/ralph-agi/test-agi-game/extracted/view/";
+const sampleTexture = pathTextures ++ "43_0_0.png";
 
 // HACK zone, just doing a quick and dirty comptime embed file.
 const rootPath = "/Users/deckarep/Desktop/ralph-agi/test-agi-game/";
@@ -43,10 +50,7 @@ const vm_height = 672;
 // pub var frameData = clib.GenImageColor(vm_width, vm_height, hlp.col(255, 255, 255, 255));
 
 // Needed because Zig can't resolve error unions with recursive function calls.
-const VMError = error{
-    EndOfStream,
-    OutOfMemory,
-};
+//const VMError = error{ EndOfStream, OutOfMemory, NoSpaceLeft };
 
 fn buildDirIndex(dirFile: []const u8) ![DIR_INDEX_SIZE]DirectoryIndex {
     var index: [DIR_INDEX_SIZE]DirectoryIndex = std.mem.zeroes([DIR_INDEX_SIZE]DirectoryIndex);
@@ -78,6 +82,9 @@ fn buildDirIndex(dirFile: []const u8) ![DIR_INDEX_SIZE]DirectoryIndex {
 }
 
 pub const VM = struct {
+    debug: bool,
+    resMan: rm.ResourceManager,
+
     newroom: u8,
     horizon: u8,
     allowInput: bool,
@@ -98,12 +105,14 @@ pub const VM = struct {
     vmTimer: timer.VM_Timer,
 
     // init creates a new instance of an AGI VM.
-    pub fn init() VM {
-        var myVM = VM{ .vmTimer = undefined, .logicIndex = undefined, .picIndex = undefined, .viewIndex = undefined, .logicStack = std.mem.zeroes([LOGIC_STACK_SIZE]u8), .logicStackPtr = 0, .activeLogicNo = 0, .newroom = 0, .horizon = 0, .allowInput = false, .haveKey = false, .programControl = false, .vars = std.mem.zeroes([TOTAL_VARS]u8), .flags = std.mem.zeroes([TOTAL_FLAGS]bool), .gameObjects = std.mem.zeroes([TOTAL_GAME_OBJS]go.GameObject) };
+    pub fn init(debugState: bool) VM {
+        var myVM = VM{ .debug = debugState, .resMan = undefined, .vmTimer = undefined, .logicIndex = undefined, .picIndex = undefined, .viewIndex = undefined, .logicStack = std.mem.zeroes([LOGIC_STACK_SIZE]u8), .logicStackPtr = 0, .activeLogicNo = 0, .newroom = 0, .horizon = 0, .allowInput = false, .haveKey = false, .programControl = false, .vars = std.mem.zeroes([TOTAL_VARS]u8), .flags = std.mem.zeroes([TOTAL_FLAGS]bool), .gameObjects = std.mem.zeroes([TOTAL_GAME_OBJS]go.GameObject) };
         return myVM;
     }
 
     pub fn vm_bootstrap(self: *VM) !void {
+        self.resMan = rm.ResourceManager.init(allocator);
+
         // Seed directory index data, not worried about sound DIR for now.
         self.logicIndex = try buildDirIndex(logDirFile);
         self.picIndex = try buildDirIndex(picDirFile);
@@ -137,11 +146,13 @@ pub const VM = struct {
     }
 
     pub fn deinit(self: *VM) void {
+        defer arena.deinit();
+        defer self.resMan.deinit();
         defer self.vmTimer.deinit();
     }
 
     pub fn vm_reset(self: *VM) void {
-        std.log.info("reset_vm invoked with: {s}", .{self});
+        self.vm_log("reset_vm invoked with: {s}", .{self});
     }
 
     pub fn vm_cycle(self: *VM) !void {
@@ -237,7 +248,7 @@ pub const VM = struct {
             obj.oldX = obj.x;
             obj.oldY = obj.y;
             // TODO: do all motion updates
-            std.log.info("updating objNo:{d}, gameObj:{any}", .{ idx, obj });
+            self.vm_log("updating objNo:{d}, gameObj:{any}", .{ idx, obj });
 
             var xStep = obj.stepSize;
             var yStep = obj.stepSize;
@@ -308,13 +319,56 @@ pub const VM = struct {
                 obj.movementFlag = go.MovementFlags.Normal;
             }
 
-            clib.DrawRectangle(obj.x, obj.y, 50, 50, clib.WHITE);
+            // TODO: need to think this through because I don't have easy access to view loop/cell data.
+            if (!obj.fixedLoop) {
+                //if (view.loops.length > 1 and view.loops.length < 4) {
+                if (obj.direction == go.Direction.UpRight or obj.direction == go.Direction.Right or obj.direction == go.Direction.DownRight or
+                    obj.direction == go.Direction.DownLeft or obj.direction == go.Direction.Left or obj.direction == go.Direction.UpLeft)
+                {
+                    obj.loop = 1;
+                }
+                // } else if (view.loops.length >= 4) {
+                //     if (obj.direction == 1) {
+                //         obj.loop = 3;
+                //     } else if (obj.direction == 2 or obj.direction == 3 or obj.direction == 4) {
+                //         obj.loop = 0;
+                //     } else if (obj.direction == 5) {
+                //         obj.loop = 2;
+                //     } else if (obj.direction == 6 or obj.direction == 7 or obj.direction == 8) {
+                //         obj.loop = 1;
+                //     }
+                // }
+            }
+
+            // NOTE: this code isn't quite right
+            // 1. need to draw the appropriate view/loop/cel
+            // 2. need to draw the correct sizing
+            // 3. need to do better key generation, and move it to a function for this crap.
+            try self.vm_draw_view(obj.viewNo, obj.loop, obj.cel, @intToFloat(f32, obj.x), @intToFloat(f32, obj.y));
+            // var tempString = [_]u8{0} ** 100;
+            // var fmtStr = try std.fmt.bufPrint(tempString[0..], "{s}{d}_0_0.png", .{ pathTextures, obj.viewNo });
+            // const texture = self.resMan.ref_texture(rm.WithKey(rm.ResourceTag.Texture, fmtStr));
+
+            // if (texture) |txt| {
+            //     clib.DrawTexturePro(txt, hlp.rect(0, 0, @intToFloat(f32, txt.width), @intToFloat(f32, txt.height)), hlp.rect(@intToFloat(f32, obj.x), @intToFloat(f32, obj.y), @intToFloat(f32, txt.width), @intToFloat(f32, txt.height)), hlp.vec2(0, 0), 0, clib.WHITE);
+            // }
+            //clib.DrawRectangle(obj.x, obj.y, 50, 50, clib.WHITE);
 
             // TODO: followed by blitting to the respective view to the screen.
         }
     }
 
-    pub fn vm_exec_logic(self: *VM, idx: usize, vol: usize, offset: u32) VMError!void {
+    pub fn vm_draw_view(self: *VM, viewNo: u8, loop: u8, cel: u8, x: f32, y: f32) anyerror!void {
+        var tempString = [_]u8{0} ** 100;
+        var fmtStr = try std.fmt.bufPrint(tempString[0..], "{s}{d}_{d}_{d}.png", .{ pathTextures, viewNo, loop, cel });
+        const texture = self.resMan.ref_texture(rm.WithKey(rm.ResourceTag.Texture, fmtStr));
+
+        if (texture) |txt| {
+            clib.DrawTexturePro(txt, hlp.rect(0, 0, @intToFloat(f32, txt.width), @intToFloat(f32, txt.height)), hlp.rect(x * 4, y * 4, @intToFloat(f32, txt.width), @intToFloat(f32, txt.height)), hlp.vec2(0, 0), 0, clib.WHITE);
+        }
+    }
+
+    pub fn vm_exec_logic(self: *VM, idx: usize, vol: usize, offset: u32) anyerror!void {
         // Select volume.
         var fbs = switch (vol) {
             0 => std.io.fixedBufferStream(vol0),
@@ -332,13 +386,13 @@ pub const VM = struct {
         const volNo: u8 = try fbs.reader().readByte();
         const resLength: u16 = try fbs.reader().readInt(u16, std.builtin.Endian.Little);
 
-        std.log.info("idx => {d}, sig => {d}, vol/volNo => {d}/{d}, resLength => {d}", .{ idx, sig, vol, volNo, resLength });
+        self.vm_log("idx => {d}, sig => {d}, vol/volNo => {d}/{d}, resLength => {d}", .{ idx, sig, vol, volNo, resLength });
 
         const newStartOffset = offset + 5;
         const newEndOffset = newStartOffset + resLength;
 
         // Parse volume part.
-        // std.log.info("[{d}..{d}] - max size: {d}", .{ newStartOffset, newEndOffset, fbs.getEndPos() });
+        // self.vm_log("[{d}..{d}] - max size: {d}", .{ newStartOffset, newEndOffset, fbs.getEndPos() });
         var volPartFbs = switch (volNo) {
             0 => std.io.fixedBufferStream(vol0[newStartOffset..newEndOffset]),
             1 => std.io.fixedBufferStream(vol1[newStartOffset..newEndOffset]),
@@ -350,13 +404,13 @@ pub const VM = struct {
 
         // TODO: finish parsing messages and if it works it should XOR with the encryption key: "Avis Durgan" defined above.
         const messageOffset = try volPartFbs.reader().readInt(u16, std.builtin.Endian.Little);
-        //std.log.info("messageOffset => {d}", .{messageOffset});
+        //self.vm_log("messageOffset => {d}", .{messageOffset});
 
         try volPartFbs.seekBy(messageOffset);
         const pos = try volPartFbs.getPos();
         //this.messageStartOffset = pos;
         const numMessages = try volPartFbs.reader().readByte();
-        //std.log.info("no. messages => {d}", .{numMessages});
+        //self.vm_log("no. messages => {d}", .{numMessages});
         _ = try volPartFbs.reader().readInt(u16, std.builtin.Endian.Little);
 
         var decryptIndex: usize = 0;
@@ -367,9 +421,9 @@ pub const VM = struct {
                 continue;
             }
 
-            var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-            defer arena.deinit();
-            const allocator = arena.allocator();
+            // var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+            // defer arena.deinit();
+            // const allocator = arena.allocator();
 
             var msgStr = ArrayList(u8).init(allocator);
             defer msgStr.deinit();
@@ -387,7 +441,7 @@ pub const VM = struct {
                 if (decryptedChar == 0) {
                     // Forget empty strings which would have a len of 1 but \0 inside them.
                     if (msgStr.items.len > 1) {
-                        std.log.info("msgStr => \"{s}\"", .{msgStr.items[0 .. msgStr.items.len - 1]});
+                        self.vm_log("msgStr => \"{s}\"", .{msgStr.items[0 .. msgStr.items.len - 1]});
                     }
                     break;
                 }
@@ -413,10 +467,10 @@ pub const VM = struct {
         var maxIters: u32 = 0;
 
         while (true) {
-            std.log.info("activeLogicNo => {d}", .{self.activeLogicNo});
+            self.vm_log("activeLogicNo => {d}", .{self.activeLogicNo});
             // TODO: (DELETE ME) Safety to prevent runaway..
             if (maxIters > 1200) {
-                std.log.info("max iterations MET!!!", .{});
+                self.vm_log("max iterations MET!!!", .{});
                 std.os.exit(9);
             }
             maxIters += 1;
@@ -424,36 +478,36 @@ pub const VM = struct {
             const opCodeNR = volPartFbs.reader().readByte() catch |e| {
                 switch (e) {
                     error.EndOfStream => {
-                        std.log.info("end of logic script({d}) encountered so BREAKing...", .{idx});
+                        self.vm_log("end of logic script({d}) encountered so BREAKing...", .{idx});
                         break;
                     },
                 }
             };
 
-            //std.log.info("opCodeNR => {X:0>2}", .{opCodeNR});
+            //self.vm_log("opCodeNR => {X:0>2}", .{opCodeNR});
             switch (opCodeNR) {
                 0x00 => {
-                    std.log.info("{X:0>2} => return", .{opCodeNR});
+                    self.vm_log("{X:0>2} => return", .{opCodeNR});
                     break;
                 },
-                0x91 => std.log.info("{X:0>2} => set.scan.start", .{opCodeNR}),
-                0x92 => std.log.info("{X:0>2} => reset.scan.start", .{opCodeNR}),
+                0x91 => self.vm_log("{X:0>2} => set.scan.start", .{opCodeNR}),
+                0x92 => self.vm_log("{X:0>2} => reset.scan.start", .{opCodeNR}),
                 0xFE => {
                     const n1: u32 = try volPartFbs.reader().readByte();
                     const n2: u32 = try volPartFbs.reader().readByte();
                     const gotoOffset = (((n2 << 8) | n1) << 16) >> 16;
-                    std.log.info("{X:0>2} => goto, offset: {d}", .{ opCodeNR, gotoOffset });
+                    self.vm_log("{X:0>2} => goto, offset: {d}", .{ opCodeNR, gotoOffset });
                     // NOTE: doing a RELATIVE jump: seekBy NOT seekTo (absolute)
                     try volPartFbs.seekBy(gotoOffset);
                 },
                 0xFF => {
-                    std.log.info("{X:0>2} => if", .{opCodeNR});
+                    self.vm_log("{X:0>2} => if", .{opCodeNR});
                     if (testMode) {
                         testMode = false;
                         const elseOffset = try volPartFbs.reader().readInt(u16, std.builtin.Endian.Little);
                         if (!testResult) {
                             // False conditional block. (jump over true block).
-                            std.log.info("doing a false test jump over true!!!", .{});
+                            self.vm_log("doing a false test jump over true!!!", .{});
                             // NOTE: doing a RELATIVE jump: seekBy NOT seekTo (absolute)
                             try volPartFbs.seekBy(elseOffset);
                         } else {
@@ -469,7 +523,7 @@ pub const VM = struct {
                 },
                 else => {
                     if (testMode) {
-                        std.log.info("{X:0>2} ELSE", .{opCodeNR});
+                        self.vm_log("{X:0>2} ELSE", .{opCodeNR});
                         if (opCodeNR == 0xFC) {
                             orMode = !orMode;
                             if (orMode) {
@@ -481,13 +535,13 @@ pub const VM = struct {
                             invertMode = !invertMode;
                         } else {
                             if ((opCodeNR - 1) >= cmds.agi_tests.len) {
-                                std.log.info("FATAL: trying to fetch a test from index: {d}", .{opCodeNR - 1});
+                                self.vm_log("FATAL: trying to fetch a test from index: {d}", .{opCodeNR - 1});
                                 return;
                             }
                             const testFunc = cmds.agi_tests[opCodeNR - 1];
                             var testCallResult = false;
 
-                            std.log.info("agi test (op:{X:0>2}): {s}(args => {d}) here...", .{ opCodeNR - 1, testFunc.name, testFunc.arity });
+                            self.vm_log("agi test (op:{X:0>2}): {s}(args => {d}) here...", .{ opCodeNR - 1, testFunc.name, testFunc.arity });
                             if (opCodeNR == 0x0E) { //Said (uses variable num of 16-bit args, within bytecode!)
                                 const saidArgLen = try volPartFbs.reader().readByte();
                                 var iSaidCount: usize = 0;
@@ -505,30 +559,30 @@ pub const VM = struct {
                                     const a = try volPartFbs.reader().readByte();
                                     const b = try volPartFbs.reader().readByte();
                                     testCallResult = self.agi_test_greatern(a, b);
-                                    std.log.info("test_greatern({d}, {d})", .{ a, b });
+                                    self.vm_log("test_greatern({d}, {d})", .{ a, b });
                                 } else if (std.mem.eql(u8, testFunc.name, "isset")) {
                                     const a = try volPartFbs.reader().readByte();
                                     testCallResult = self.agi_test_isset(a);
-                                    std.log.info("isset({d})", .{a});
+                                    self.vm_log("isset({d})", .{a});
                                 } else if (std.mem.eql(u8, testFunc.name, "controller")) {
                                     const a = try volPartFbs.reader().readByte();
                                     testCallResult = self.agi_test_controller(a);
-                                    std.log.info("test_controller({d})", .{a});
+                                    self.vm_log("test_controller({d})", .{a});
                                 } else if (std.mem.eql(u8, testFunc.name, "equaln")) {
                                     const a = try volPartFbs.reader().readByte();
                                     const b = try volPartFbs.reader().readByte();
                                     testCallResult = self.agi_test_equaln(a, b);
-                                    std.log.info("test_equaln({d}, {d})", .{ a, b });
+                                    self.vm_log("test_equaln({d}, {d})", .{ a, b });
                                 } else if (std.mem.eql(u8, testFunc.name, "equalv")) {
                                     const a = try volPartFbs.reader().readByte();
                                     const b = try volPartFbs.reader().readByte();
                                     testCallResult = self.agi_test_equalv(a, b);
-                                    std.log.info("test_equalv({d}, {d})", .{ a, b });
+                                    self.vm_log("test_equalv({d}, {d})", .{ a, b });
                                 } else if (std.mem.eql(u8, testFunc.name, "have_key")) {
                                     testCallResult = self.agi_test_have_key();
-                                    std.log.info("agi_test_have_key()", .{});
+                                    self.vm_log("agi_test_have_key()", .{});
                                 } else {
-                                    std.log.info("test op:{d}(0x{X:0>2}) not handled!", .{ opCodeNR - 1, opCodeNR - 1 });
+                                    self.vm_log("test op:{d}(0x{X:0>2}) not handled!", .{ opCodeNR - 1, opCodeNR - 1 });
                                     self.vm_op_not_implemented(35);
                                 }
                             }
@@ -667,10 +721,10 @@ pub const VM = struct {
                             self.agi_decrement(a);
                         } else if (std.mem.eql(u8, statementFunc.name, "load_view_v")) {
                             const a = try volPartFbs.reader().readByte();
-                            self.agi_load_view_v(a);
+                            try self.agi_load_view_v(a);
                         } else if (std.mem.eql(u8, statementFunc.name, "load_view")) {
                             const a = try volPartFbs.reader().readByte();
-                            self.agi_load_view(a);
+                            try self.agi_load_view(a);
                         } else if (std.mem.eql(u8, statementFunc.name, "set_view")) {
                             const a = try volPartFbs.reader().readByte();
                             const b = try volPartFbs.reader().readByte();
@@ -792,7 +846,7 @@ pub const VM = struct {
                         }
                         // Finally, special handling for new.room opcode.
                         if (opCodeNR == 0x12) {
-                            std.log.info("new.room opcode special handling (BREAKS)...", .{});
+                            self.vm_log("new.room opcode special handling (BREAKS)...", .{});
                             try volPartFbs.seekTo(0);
                             break;
                         }
@@ -811,19 +865,19 @@ pub const VM = struct {
                     _ = try rdr.reader().readByte();
                 }
 
-                std.log.info("IGNOR-STMT: agi_{s}() with {d} args...", .{ ignoreName, arity });
+                self.vm_log("IGNOR-STMT: agi_{s}() with {d} args...", .{ ignoreName, arity });
                 return;
             }
         }
 
-        std.log.info("NOT IMPLEMENTED: agi statement: {s}(<args>), opCode:{d}, (arg_count => {d})...", .{ ignoreName, opCodeNR, arity });
+        self.vm_log("NOT IMPLEMENTED: agi statement: {s}(<args>), opCode:{d}, (arg_count => {d})...", .{ ignoreName, opCodeNR, arity });
         self.vm_op_not_implemented(35);
     }
 
     pub fn vm_push_logic_stack(self: *VM, logicNo: u8) void {
         if (self.logicStackPtr == LOGIC_STACK_SIZE - 1) {
             std.os.exit(9);
-            std.log.info("OH NO: stack over flow beyatch!", .{});
+            self.vm_log("OH NO: stack over flow beyatch!", .{});
         }
         self.logicStack[self.logicStackPtr] = logicNo;
         self.logicStackPtr += 1;
@@ -831,7 +885,7 @@ pub const VM = struct {
 
     pub fn vm_pop_logic_stack(self: *VM) u8 {
         if (self.logicStackPtr == 0) {
-            std.log.info("OH NO: stack under flow beyatch!", .{});
+            self.vm_log("OH NO: stack under flow beyatch!", .{});
             std.os.exit(9);
         }
 
@@ -840,9 +894,15 @@ pub const VM = struct {
         return logicNo;
     }
 
-    pub fn vm_op_not_implemented(_: *VM, statusCode: u8) void {
-        std.log.info("vm_op_not_implemented({d}) exited...", .{statusCode});
+    pub fn vm_op_not_implemented(self: *VM, statusCode: u8) void {
+        self.vm_log("vm_op_not_implemented({d}) exited...", .{statusCode});
         std.os.exit(statusCode);
+    }
+
+    fn vm_log(self: *VM, comptime format: []const u8, args: anytype) void {
+        if (self.debug) {
+            std.log.debug(format, args);
+        }
     }
 
     pub fn read_var(self: *VM, varNo: usize) u8 {
@@ -895,14 +955,15 @@ pub const VM = struct {
         return hk;
     }
 
-    fn agi_test_said(_: *VM, args: []const u16) bool {
-        std.log.info("agi_test_said({any}) invoked...", .{args});
+    fn agi_test_said(self: *VM, args: []const u16) bool {
+        //self.vm_log("agi_test_said({any}) invoked...", .{args});
+        self.vm_log("agi_test_said({any}) invoked...", .{args});
         return false;
     }
 
     // AGI Statement invocations.
     pub fn agi_new_room(self: *VM, roomNo: u8) void {
-        std.log.info("NEW_ROOM {d}", .{roomNo});
+        self.vm_log("NEW_ROOM {d}", .{roomNo});
         self.newroom = roomNo;
     }
 
@@ -912,16 +973,16 @@ pub const VM = struct {
 
     pub fn agi_assignn(self: *VM, varNo: u8, num: u8) void {
         self.vars[varNo] = num;
-        std.log.info("agi_assignn({d}:varNo, {d}:num);", .{ varNo, num });
+        self.vm_log("agi_assignn({d}:varNo, {d}:num);", .{ varNo, num });
     }
 
     pub fn agi_assignv(self: *VM, varNo1: u8, varNo2: u8) void {
         self.agi_assignn(varNo1, self.read_var(varNo2));
-        std.log.info("agi_assignv({d}:varNo, {d}:num);", .{ varNo1, varNo2 });
+        self.vm_log("agi_assignv({d}:varNo, {d}:num);", .{ varNo1, varNo2 });
     }
 
     pub fn agi_call(self: *VM, logicNo: u8) !void {
-        std.log.info("api_call({d})...", .{logicNo});
+        self.vm_log("api_call({d})...", .{logicNo});
 
         self.vm_push_logic_stack(self.activeLogicNo);
         self.activeLogicNo = logicNo;
@@ -936,10 +997,10 @@ pub const VM = struct {
         // TEMP hack: for now just load it on demand.
         const dirIndex = self.logicIndex[logicNo];
         if (dirIndex.offset == 0) {
-            std.log.info("a NON-EXISTENT logic script was requested: {d}", .{logicNo});
+            self.vm_log("a NON-EXISTENT logic script was requested: {d}", .{logicNo});
             std.os.exit(9);
         }
-        std.log.info("vm_exec_logic @ logicNo:{d}, vol:{d}, offset:{d}", .{ logicNo, dirIndex.vol, dirIndex.offset });
+        self.vm_log("vm_exec_logic @ logicNo:{d}, vol:{d}, offset:{d}", .{ logicNo, dirIndex.vol, dirIndex.offset });
         try self.vm_exec_logic(logicNo, dirIndex.vol, dirIndex.offset);
 
         //if (this.loadedLogics[logicNo] != null) {
@@ -957,13 +1018,13 @@ pub const VM = struct {
         try self.agi_call(self.read_var(varNo));
     }
 
-    pub fn agi_quit(_: *VM, statusCode: u8) void {
-        std.log.info("agi_quit({d}) exited..", .{statusCode});
+    pub fn agi_quit(self: *VM, statusCode: u8) void {
+        self.vm_log("agi_quit({d}) exited..", .{statusCode});
         std.os.exit(statusCode);
     }
 
     pub fn agi_load_logic(self: *VM, logNo: usize) void {
-        std.log.info("agi_load_logic({s}, {d}", .{ self, logNo });
+        self.vm_log("agi_load_logic({s}, {d}", .{ self, logNo });
         //self.loadedLogics[logNo] = new LogicParser(this, logNo);
     }
 
@@ -975,7 +1036,7 @@ pub const VM = struct {
         if (self.read_var(varNo) < 255) {
             self.vars[varNo] += 1;
         }
-        std.log.info("increment({d}:varNo) invoked to val: {d}", .{ varNo, self.vars[varNo] });
+        self.vm_log("increment({d}:varNo) invoked to val: {d}", .{ varNo, self.vars[varNo] });
     }
 
     pub fn agi_decrement(self: *VM, varNo: usize) void {
@@ -986,12 +1047,12 @@ pub const VM = struct {
 
     pub fn agi_set(self: *VM, flagNo: u8) void {
         self.flags[flagNo] = true;
-        std.log.info("agi_set(flagNo:{d});", .{flagNo});
+        self.vm_log("agi_set(flagNo:{d});", .{flagNo});
     }
 
     pub fn agi_setv(self: *VM, varNo: u8) void {
         self.agi_set(self.read_var(varNo));
-        std.log.info("agi_set(varNo:{d});", .{varNo});
+        self.vm_log("agi_set(varNo:{d});", .{varNo});
     }
 
     pub fn agi_reset(self: *VM, flagNo: u8) void {
@@ -1040,11 +1101,11 @@ pub const VM = struct {
         // this.agi_draw(objNo);
     }
 
-    pub fn agi_clear_lines(_: *VM, a: u8, b: u8, c: u8) void {
+    pub fn agi_clear_lines(self: *VM, a: u8, b: u8, c: u8) void {
         // for (var y = fromRow; y < row + 1; y++) {
         //         this.screen.bltText(y, 0, "                                        ");
         //     }
-        std.log.info("agi_clear_lines({d},{d},{d})", .{ a, b, c });
+        self.vm_log("agi_clear_lines({d},{d},{d})", .{ a, b, c });
     }
 
     pub fn agi_prevent_input(self: *VM) void {
@@ -1070,7 +1131,7 @@ pub const VM = struct {
         self.gameObjects[objNo].stepSize = 1;
         self.gameObjects[objNo].nextCycle = 1;
 
-        //std.log.info("agi_animate_obj({d}) invoked", .{objNo});
+        //self.vm_log("agi_animate_obj({d}) invoked", .{objNo});
     }
 
     pub fn agi_step_size(self: *VM, objNo: u8, varNo: u8) void {
@@ -1121,37 +1182,63 @@ pub const VM = struct {
         self.agi_set_view(objNo, self.read_var(varNo));
     }
 
-    pub fn agi_load_view(_: *VM, viewNo: u8) void {
+    pub fn agi_load_view(self: *VM, viewNo: u8) anyerror!void {
         //self.loadedViews[viewNo] = new View(Resources.readAgiResource(Resources.AgiResource.View, viewNo));
-        std.log.info("agi_load_view({d}) invoked...", .{viewNo});
+        self.vm_log("agi_load_view({d}) invoked...(sampleTexture => {s})", .{ viewNo, sampleTexture });
 
-        // TODO: since views are extracted as .png in the format of: 39_1_0.png.
+        // TODO: since views are extracted as .png in the format of: 39_1_0.png. (view, loop, cell)
         // I need to load all .png files in the view set: 39_*_*.png and show the relevant one based on the animation loop/cycle.
+        // Since all related files are now separate .png, one strategy is to just iterate with a loop and do a file exists check.
+
+        const maxLoops = 15;
+        const maxCels = 15;
+
+        var loopIndex: usize = 0;
+        var cellIndex: usize = 0;
+
+        // Total file exists brute force approach...not the cleanest...but...good enough for now.
+        while (loopIndex < maxLoops) : (loopIndex += 1) {
+            while (cellIndex < maxCels) : (cellIndex += 1) {
+                var tempString: [100]u8 = undefined;
+                var fmtStr = try std.fmt.bufPrint(tempString[0..], "{s}{d}_{d}_{d}.png", .{ pathTextures, viewNo, loopIndex, cellIndex });
+
+                const cstr = try allocator.dupeZ(u8, fmtStr);
+                defer allocator.free(cstr);
+
+                if (clib.FileExists(cstr)) {
+                    _ = try self.resMan.add_texture(rm.WithKey(rm.ResourceTag.Texture, fmtStr));
+                    self.vm_log("located view file: {s}", .{fmtStr});
+                } else {
+                    //std.log.info("view file NOT found: {s}", .{fmtStr});
+                }
+            }
+            cellIndex = 0;
+        }
     }
 
-    pub fn agi_load_view_v(self: *VM, varNo: u8) void {
-        self.agi_load_view(self.read_var(varNo));
+    pub fn agi_load_view_v(self: *VM, varNo: u8) anyerror!void {
+        try self.agi_load_view(self.read_var(varNo));
     }
 
     pub fn agi_set_horizon(self: *VM, y: u8) void {
         self.horizon = y;
     }
 
-    pub fn agi_load_sound(_: *VM, soundNo: u8) void {
-        std.log.info("agi_load_sound({d}) invoked...", .{soundNo});
+    pub fn agi_load_sound(self: *VM, soundNo: u8) void {
+        self.vm_log("agi_load_sound({d}) invoked...", .{soundNo});
     }
 
-    pub fn agi_sound(_: *VM, soundNo: u8, flagNo: u8) void {
-        std.log.info("agi_sound({d}, {d}) invoked...", .{ soundNo, flagNo });
+    pub fn agi_sound(self: *VM, soundNo: u8, flagNo: u8) void {
+        self.vm_log("agi_sound({d}, {d}) invoked...", .{ soundNo, flagNo });
     }
 
-    pub fn agi_stop_sound(_: *VM) void {
-        std.log.info("agi_stop_sound() invoked...", .{});
+    pub fn agi_stop_sound(self: *VM) void {
+        self.vm_log("agi_stop_sound() invoked...", .{});
     }
 
     pub fn agi_load_pic(self: *VM, varNo: u8) void {
         const picNo = self.read_var(varNo);
-        std.log.info("agi_load_pic({d}) (picNo:{d})invoked...", .{ varNo, picNo });
+        self.vm_log("agi_load_pic({d}) (picNo:{d})invoked...", .{ varNo, picNo });
         // this.loadedPics[picNo] = new Pic(Resources.readAgiResource(Resources.AgiResource.Pic, picNo));
     }
 
@@ -1159,7 +1246,7 @@ pub const VM = struct {
         // this.visualBuffer.clear(0x0F);
         // this.priorityBuffer.clear(0x04);
         self.agi_overlay_pic(varNo);
-        std.log.info("agi_draw_pic({d})", .{varNo});
+        self.vm_log("agi_draw_pic({d})", .{varNo});
     }
 
     pub fn agi_draw(self: *VM, objNo: u8) void {
@@ -1168,28 +1255,28 @@ pub const VM = struct {
 
     pub fn agi_overlay_pic(self: *VM, varNo: u8) void {
         const picNo = self.read_var(varNo);
-        std.log.info("agi_overlay_pic({d}) (picNo:{d})invoked...", .{ varNo, picNo });
+        self.vm_log("agi_overlay_pic({d}) (picNo:{d})invoked...", .{ varNo, picNo });
         //this.loadedPics[picNo].draw(this.visualBuffer, this.priorityBuffer);
     }
 
     pub fn agi_discard_pic(self: *VM, varNo: u8) void {
         const picNo = self.read_var(varNo);
-        std.log.info("agi_discard_pic({d}) (picNo:{d})invoked...", .{ varNo, picNo });
+        self.vm_log("agi_discard_pic({d}) (picNo:{d})invoked...", .{ varNo, picNo });
         //this.loadedPics[picNo] = null;
     }
 
-    pub fn agi_add_to_pic(_: *VM, viewNo: u8, loopNo: u8, celNo: u8, x: u8, y: u8, priority: u8, margin: u8) void {
+    pub fn agi_add_to_pic(self: *VM, viewNo: u8, loopNo: u8, celNo: u8, x: u8, y: u8, priority: u8, margin: u8) void {
         // TODO: Add margin
         //this.screen.bltView(viewNo, loopNo, celNo, x, y, priority);
-        std.log.info("agi_add_to_pic({d},{d},{d},{d},{d},{d},{d})", .{ viewNo, loopNo, celNo, x, y, priority, margin });
+        self.vm_log("agi_add_to_pic({d},{d},{d},{d},{d},{d},{d})", .{ viewNo, loopNo, celNo, x, y, priority, margin });
     }
 
     pub fn agi_add_to_pic_v(self: *VM, varNo1: u8, varNo2: u8, varNo3: u8, varNo4: u8, varNo5: u8, varNo6: u8, varNo7: u8) void {
         self.agi_add_to_pic(self.read_var(varNo1), self.read_var(varNo2), self.read_var(varNo3), self.read_var(varNo4), self.read_var(varNo5), self.read_var(varNo6), self.read_var(varNo7));
     }
 
-    pub fn agi_show_pic(_: *VM) void {
-        std.log.info("agi_show_pic()", .{});
+    pub fn agi_show_pic(self: *VM) void {
+        self.vm_log("agi_show_pic()", .{});
         // this.screen.bltPic();
         // this.gameObjects.forEach(obj => {
         //     obj.redraw = true;
@@ -1275,8 +1362,8 @@ pub const VM = struct {
         self.gameObjects[objNo].flagToSetWhenFinished = flagNo;
     }
 
-    fn agi_display(_: *VM, row: u8, col: u8, msg: u8) void {
-        std.log.info("agi_display({d}:row, {d}:col, {d}:msg) invoked...", .{ row, col, msg });
+    fn agi_display(self: *VM, row: u8, col: u8, msg: u8) void {
+        self.vm_log("agi_display({d}:row, {d}:col, {d}:msg) invoked...", .{ row, col, msg });
         //this.screen.bltText(row, col, this.loadedLogics[this.logicNo].logic.messages[msg]);
     }
 

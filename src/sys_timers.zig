@@ -8,6 +8,7 @@ pub const TimerState = enum(u8) {
     Shutdown,
 };
 
+// TODO: the timing on this is off but the concept works for bumping the timers.
 // Note: Monotonic and Relaxed are the same thing.
 
 pub const VM_Timer = struct {
@@ -59,7 +60,7 @@ pub const VM_Timer = struct {
                 _ = self.aDays.fetchAdd(1, std.atomic.Ordering.Monotonic);
             }
 
-            std.log.info("hello!!! from thread -> {d}:secs, {d}:mins, {d}:hrs, {d}:days", .{ self.aSeconds.load(std.atomic.Ordering.Monotonic), self.aMinutes.load(std.atomic.Ordering.Monotonic), self.aHours.load(std.atomic.Ordering.Monotonic), self.aDays.load(std.atomic.Ordering.Monotonic) });
+            //std.log.info("hello!!! from thread -> {d}:secs, {d}:mins, {d}:hrs, {d}:days", .{ self.aSeconds.load(std.atomic.Ordering.Monotonic), self.aMinutes.load(std.atomic.Ordering.Monotonic), self.aHours.load(std.atomic.Ordering.Monotonic), self.aDays.load(std.atomic.Ordering.Monotonic) });
             std.time.sleep(500 * std.time.ns_per_ms);
         }
     }

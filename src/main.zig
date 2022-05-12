@@ -6,13 +6,20 @@ const go = @import("game_object.zig");
 const hlp = @import("raylib_helpers.zig");
 const cmds = @import("agi_cmds.zig");
 const agi_vm = @import("vm.zig");
+const rm = @import("resource_manager.zig");
 
 var prng = std.rand.DefaultPrng.init(0);
 const rand = prng.random();
 
 var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-
 const allocator = arena.allocator();
+
+const pathAudio = "/Users/deckarep/Desktop/ralph-agi/test-agi-game/ripped_music/";
+const kIntro = rm.WithKey(rm.ResourceTag.MusicStream, pathAudio ++ "Larry - Intro.mp3");
+const playAudio = false;
+
+const pathTextures = "/Users/deckarep/Desktop/ralph-agi/test-agi-game/extracted/view/";
+const sampleTexture = pathTextures ++ "43_0_0.png";
 
 // NOTES:
 
@@ -32,13 +39,19 @@ const allocator = arena.allocator();
 
 // Views:
 //  * Extracted format is: 40_0_1.png aka: {viewNo}_{loop}_{cell}.png.
+//  * Original screen dimensions: 320x200
 
 // Raylib drawing:
 //  * Using the Image api is slow and not recommended with raylib when it comes to frame/by/frame or speed.
 //  * Instead, one strategy is to just use my own raw memory in Zig for each painting buffer I need.
 //  * Then, for all blit routines loop over the raw memory as needed and just do a DrawPixel call to either the screen or a render texture, therefore avoiding the Image api entirely.
+//  TODO: noticed the vm_cycle is in the while loop but outside of the Begin/EndDrawing routines. But the VM itself does issue draw commands...so probably should move it.
 
-var vmInstance = agi_vm.VM.init();
+// Music:
+//  * NOTE: The music stream needs to be updated at a low enough latency therefore I might need to set that up in it's own dedicated thread.
+//  * NOTE: One user commented to try and increase the buffer size!!!
+
+var vmInstance = agi_vm.VM.init(false);
 
 // Adapted from: https://github.com/r1sc/agi.js/blob/master/Interpreter.ts
 // TODO: all array indices should be usize.
@@ -53,6 +66,11 @@ pub fn main() anyerror!void {
     c.SetTargetFPS(60);
     defer c.CloseWindow();
 
+    var resMan = rm.ResourceManager.init(allocator);
+    defer resMan.deinit();
+
+    // Load music streams...
+    _ = try resMan.add_musicstream(kIntro);
     // Hide mouse cursor.
     //c.HideCursor();
     //defer c.ShowCursor();
@@ -78,7 +96,14 @@ pub fn main() anyerror!void {
 
     while (!c.WindowShouldClose()) {
         // Update section.
-        try vmInstance.vm_cycle();
+
+        if (playAudio) {
+            if (!resMan.isMusicStreamPlaying(kIntro)) {
+                //resMan.stopMusicStream(kIntro);
+                resMan.playMusicStream(kIntro);
+            }
+            resMan.updateMusicStream(kIntro);
+        }
 
         // Draw section.
         //drawwRaylib(&bg, &larry);
@@ -99,6 +124,8 @@ pub fn main() anyerror!void {
 
         c.BeginDrawing();
         c.ClearBackground(c.BLACK);
+
+        try vmInstance.vm_cycle();
 
         //const flags = [_]bool{ true, false, true, false, true, false, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, false };
         debugDrawVars(&vmInstance.vars);
@@ -121,34 +148,6 @@ pub fn main() anyerror!void {
             .{ .name = "scriptDone", .idx = 75 },
         };
         try moniterFlagSet(flagSet[0..]);
-
-        // var i: usize = 0;
-        // var xOffset: c_int = 10;
-        // var yOffset: c_int = 10;
-        // const padding = 35;
-
-        // for (vmInstance.flags) |flg| {
-        //     const x = @intCast(c_int, (i * padding)) + xOffset;
-        //     const y = yOffset;
-        //     const size = 10;
-        //     const color = if (flg) c.GREEN else c.BLUE;
-
-        //     const symbol = if (flg) c.TextFormat("T: %03i", i) else c.TextFormat("F: %03i", i);
-        //     c.DrawText(symbol, x, y, size, color);
-        //     i += 1;
-        // }
-        // // NOTE: Render texture must be y-flipped due to default OpenGL coordinates (left-bottom)
-        // var i: usize = 0;
-        // //var rFactor: c_int = if (c.IsMouseButtonDown(c.MOUSE_BUTTON_LEFT)) 30 else 1;
-        // //const valueA = @intToFloat(f32, c.GetRandomValue(1, rFactor));
-        // //c.BeginBlendMode(c.BLEND_ADDITIVE);
-        // while (i < 5) : (i += 1) {
-        //     // const valueB = @intToFloat(f32, c.GetRandomValue(1, rFactor));
-        //     // const valueC = @intToFloat(f32, c.GetRandomValue(1, rFactor));
-        //     // const valueD = @intToFloat(f32, c.GetRandomValue(1, rFactor));
-        //     c.DrawTexturePro(target.texture, hlp.rect(0, 0, 1280, -672), hlp.rect(0, 0, 1280, 672), hlp.vec2(0, 0), 0, c.WHITE);
-        // }
-        //c.EndBlendMode();
         c.EndDrawing();
 
         std.time.sleep(100 * std.time.ns_per_ms);

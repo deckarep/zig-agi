@@ -23,6 +23,9 @@ const sampleTexture = pathTextures ++ "43_0_0.png";
 
 // NOTES:
 
+// VM Runtime
+//  * Interpret runs at 1/20th of a second * var[10] (time delay)...
+
 // Logic:
 //  * This -> [ indicates a line comment in original source.
 //  * if (initLog) {} means "initial logic" or constructor code for a logic room.
@@ -125,7 +128,9 @@ pub fn main() anyerror!void {
         c.BeginDrawing();
         c.ClearBackground(c.BLACK);
 
+        std.log.info("before vm_cycle", .{});
         try vmInstance.vm_cycle();
+        std.log.info("after vm_cycle", .{});
 
         //std.log.info("frame: {d}", .{c.GetFrameTime()});
 
@@ -134,10 +139,16 @@ pub fn main() anyerror!void {
         debugDrawFlags(&vmInstance.flags);
 
         const varSet = [_]monVar{
+            .{ .name = "egoDir", .idx = 6 },
             .{ .name = "elapsedSeconds", .idx = 11 },
             .{ .name = "elapsedMin", .idx = 12 },
             .{ .name = "elapsedHrs", .idx = 13 },
             .{ .name = "elapsedDays", .idx = 14 },
+            .{ .name = "egoX", .idx = 38 },
+            .{ .name = "oldEgoX", .idx = 40 },
+            .{ .name = "egoY", .idx = 39 },
+            .{ .name = "oldEgoY", .idx = 41 },
+            .{ .name = "oldEgoDir", .idx = 42 },
             .{ .name = "passInRoom", .idx = 62 },
             .{ .name = "script", .idx = 65 },
             .{ .name = "scriptCycles", .idx = 66 },
@@ -162,7 +173,7 @@ const monVar = struct {
 };
 
 fn moniterVarSet(vars: []const monVar) !void {
-    const xOffset = 10;
+    const xOffset = 1200;
     const yOffset = 10;
     const size = 15;
 
@@ -174,7 +185,7 @@ fn moniterVarSet(vars: []const monVar) !void {
 
         // NOTE: need to pass pointer child-type hence the .ptr or else get C ABI Zig bug.  :shrug:
         const symbol = c.TextFormat("%s: %03i => %03i", v.name.ptr, v.idx, vmInstance.read_var(v.idx));
-        c.DrawText(symbol, xOffset, yOffset + (@intCast(c_int, i) * 16), size, c.WHITE);
+        c.DrawText(symbol, xOffset, yOffset + (@intCast(c_int, i) * 16), size, c.GREEN);
         i += 1;
     }
 }
@@ -185,8 +196,8 @@ const monFlag = struct {
 };
 
 fn moniterFlagSet(flags: []const monFlag) !void {
-    const xOffset = 10;
-    const yOffset = 200;
+    const xOffset = 1200;
+    const yOffset = 300;
     const size = 15;
 
     var i: usize = 0;
@@ -197,7 +208,7 @@ fn moniterFlagSet(flags: []const monFlag) !void {
 
         // NOTE: need to pass pointer child-type hence the .ptr or else get C ABI Zig bug.  :shrug:
         const symbol = c.TextFormat("%s: %03i => %s", f.name.ptr, f.idx, if (vmInstance.flags[f.idx]) "T" else "F");
-        c.DrawText(symbol, xOffset, yOffset + (@intCast(c_int, i) * 16), size, c.WHITE);
+        c.DrawText(symbol, xOffset, yOffset + (@intCast(c_int, i) * 18), size, c.WHITE);
         i += 1;
     }
 }

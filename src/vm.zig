@@ -104,6 +104,11 @@ pub const VM = struct {
     logicStackPtr: usize,
     activeLogicNo: u8,
 
+    blockX1: u8,
+    blockX2: u8,
+    blockY1: u8,
+    blockY2: u8,
+
     logicIndex: [DIR_INDEX_SIZE]DirectoryIndex,
     picIndex: [DIR_INDEX_SIZE]DirectoryIndex,
     viewIndex: [DIR_INDEX_SIZE]DirectoryIndex,
@@ -112,7 +117,7 @@ pub const VM = struct {
 
     // init creates a new instance of an AGI VM.
     pub fn init(debugState: bool) VM {
-        var myVM = VM{ .debug = debugState, .resMan = undefined, .viewDB = std.mem.zeroes([1000][20]u8), .vmTimer = undefined, .logicIndex = undefined, .picIndex = undefined, .viewIndex = undefined, .logicStack = std.mem.zeroes([LOGIC_STACK_SIZE]u8), .logicStackPtr = 0, .activeLogicNo = 0, .newroom = 0, .horizon = 0, .allowInput = false, .haveKey = false, .programControl = false, .vars = std.mem.zeroes([TOTAL_VARS]u8), .flags = std.mem.zeroes([TOTAL_FLAGS]bool), .gameObjects = std.mem.zeroes([TOTAL_GAME_OBJS]go.GameObject) };
+        var myVM = VM{ .debug = debugState, .resMan = undefined, .viewDB = std.mem.zeroes([1000][20]u8), .vmTimer = undefined, .logicIndex = undefined, .picIndex = undefined, .viewIndex = undefined, .logicStack = std.mem.zeroes([LOGIC_STACK_SIZE]u8), .logicStackPtr = 0, .activeLogicNo = 0, .blockX1 = 0, .blockX2 = 0, .blockY1 = 0, .blockY2 = 0, .newroom = 0, .horizon = 0, .allowInput = false, .haveKey = false, .programControl = false, .vars = std.mem.zeroes([TOTAL_VARS]u8), .flags = std.mem.zeroes([TOTAL_FLAGS]bool), .gameObjects = std.mem.zeroes([TOTAL_GAME_OBJS]go.GameObject) };
         return myVM;
     }
 
@@ -161,16 +166,31 @@ pub const VM = struct {
         self.vm_log("reset_vm invoked with: {s}", .{self});
     }
 
+    fn vm_set_ego_dir(self: *VM, newEgoDir: u8) void {
+        const egoDir = self.read_var(6);
+        self.vars[6] = if (egoDir == newEgoDir) 0 else newEgoDir;
+    }
+
     pub fn vm_cycle(self: *VM) !void {
         self.flags[2] = false; // The player has entered a command
         self.flags[4] = false; // said accepted user input
 
+        var egoDir = self.read_var(6);
+        if (self.programControl) {
+            egoDir = self.read_var(6);
+        } else {
+            self.vars[6] = egoDir;
+        }
+
+        var outer_call_count: usize = 0;
+        defer std.log.info("outer_call_count: {d}", .{outer_call_count});
+
         while (true) {
+            defer outer_call_count += 1;
             try self.agi_call(0);
             self.flags[11] = false; // Logic 0 executed for the first time.
 
             // TODO: figure out what these are supposed to represent.
-            //this.gameObjects[0].direction = this.variables[6];
             self.vars[5] = 0;
             self.vars[4] = 0;
             self.flags[5] = false;
@@ -182,56 +202,38 @@ pub const VM = struct {
                 var obj = &self.gameObjects[i];
                 if (obj.update) {
                     if (i == 0) {
-                        //obj.direction = egoDir;
+                        obj.direction = @intToEnum(go.Direction, egoDir);
                     }
                     try self.vm_updateObject(i, obj);
                 }
             }
-            // for (var j = 0; j < this.gameObjects.length; j++) {
-            //     var obj = this.gameObjects[j];
-            //     if (obj.update) {
-            //         if (j == 0)
-            //             obj.direction = egoDir;
-            //         //else
-            //         //    obj.updateDirection(this);
-            //         this.updateObject(obj, j);
-            //     }
-            // }
 
             if (self.newroom != 0) {
                 // need to start handling this logic next, since new room is changed.
-                //self.agi_stop_update(0);
+                self.agi_stop_update(0);
                 self.agi_unanimate_all();
                 // RC: Not sure what to do with this line.
                 //self.loadedLogics = self.loadedLogics.slice(0, 1);
-                //self.agi_player_control();
-                //self.agi_unblock();
+                self.agi_player_control();
+                self.agi_unblock();
                 self.agi_set_horizon(36);
 
-                self.vars[1] = self.vars[0];
+                self.vars[1] = self.read_var(0);
                 self.vars[0] = self.newroom;
                 self.vars[4] = 0;
                 self.vars[5] = 0;
                 self.vars[9] = 0;
                 self.vars[16] = self.gameObjects[0].viewNo;
 
-                // switch (this.variables[2]) {
-                //     case 0: // Touched nothing
-                //         break;
-                //     case 1: // Top edge or horizon
-                //         this.gameObjects[0].y = 168;
-                //         break;
-                //     case 2:
-                //         this.gameObjects[0].x = 1;
-                //         break;
-                //     case 3:
-                //         this.gameObjects[0].y = this.horizon;
-                //         break;
-                //     case 4:
-                //         this.gameObjects[0].x = 160;
-                //         break;
-                //     default:
-                // }
+                switch (self.read_var(2)) {
+                    // 0 => Touched nothing
+                    // Top edge or horizon
+                    1 => self.gameObjects[0].y = 168,
+                    2 => self.gameObjects[0].x = 1,
+                    3 => self.gameObjects[0].y = self.horizon,
+                    4 => self.gameObjects[0].x = 160,
+                    else => {},
+                }
 
                 self.vars[2] = 0;
                 self.flags[2] = false;
@@ -253,8 +255,8 @@ pub const VM = struct {
         if (obj.draw) {
             obj.oldX = obj.x;
             obj.oldY = obj.y;
-            // TODO: do all motion updates
-            self.vm_log("updating objNo:{d}, gameObj:{any}", .{ idx, obj });
+
+            std.log.info("updating objNo:{d}, gameObj:{any}", .{ idx, obj });
 
             var xStep = obj.stepSize;
             var yStep = obj.stepSize;
@@ -325,6 +327,38 @@ pub const VM = struct {
                 obj.movementFlag = go.MovementFlags.Normal;
             }
 
+            if (obj.x != obj.oldX or obj.y != obj.oldY) {
+                if (obj.x <= 0) {
+                    if (idx == 0) {
+                        self.vars[2] = 4;
+                    } else {
+                        self.vars[4] = @intCast(u8, idx);
+                        self.vars[5] = 4;
+                    }
+                } else if (obj.x + try self.vm_cel_width(obj.viewNo, obj.loop, obj.cel) >= 160) {
+                    if (idx == 0) {
+                        self.vars[2] = 2;
+                    } else {
+                        self.vars[4] = @intCast(u8, idx);
+                        self.vars[5] = 2;
+                    }
+                } else if (!obj.ignoreHorizon and obj.y <= self.horizon) {
+                    if (idx == 0) {
+                        self.vars[2] = 1;
+                    } else {
+                        self.vars[4] = @intCast(u8, idx);
+                        self.vars[5] = 1;
+                    }
+                } else if (obj.y >= 168) {
+                    if (idx == 0) {
+                        self.vars[2] = 3;
+                    } else {
+                        self.vars[4] = @intCast(u8, idx);
+                        self.vars[5] = 3;
+                    }
+                }
+            }
+
             if (!obj.fixedLoop) {
                 const loopLength = self.vm_view_loop_count(obj.viewNo);
                 if (loopLength > 1 and loopLength < 4) {
@@ -382,6 +416,8 @@ pub const VM = struct {
             // NOTE: this code is getting there.
             // 1. need to draw the correct sizing/x,y placement for higher resolution assets (factor of 4 times bigger)
             if (obj.viewNo == 44) {
+                //std.log.info("larry => \n egoDir => {d}, movementFlag => {s}, dir => {s}", .{ self.read_var(6), obj.movementFlag, obj.direction });
+                std.log.info("egoDir => {d}, egoX => {d}, oldEgoX => {d}, egoY => {d}, oldEgoY => {d}", .{ self.read_var(6), self.read_var(38), self.read_var(40), self.read_var(39), self.read_var(41) });
                 try self.vm_draw_view(obj.viewNo, obj.loop, obj.cel, @intToFloat(f32, obj.x), @intToFloat(f32, obj.y));
             }
         }
@@ -404,6 +440,18 @@ pub const VM = struct {
             std.log.warn("NOT FOUND view:{d}, loop:{d}, cel:{d} => {s}", .{ viewNo, loop, cel, fmtStr });
             std.os.exit(39);
         }
+    }
+
+    fn vm_cel_width(self: *VM, viewNo: u8, loop: u8, cel: u8) !c_int {
+        var buf: [100]u8 = undefined;
+        const fmtStr = try vm_view_key(&buf, viewNo, loop, cel);
+        const texture = self.resMan.ref_texture(rm.WithKey(rm.ResourceTag.Texture, fmtStr));
+
+        if (texture) |txt| {
+            return txt.width;
+        }
+        // TODO: returning a hardcoded texture width for now... ugh.
+        return 100;
     }
 
     pub fn vm_exec_logic(self: *VM, idx: usize, vol: usize, offset: u32) anyerror!void {
@@ -504,7 +552,10 @@ pub const VM = struct {
         //var args: number[];
         var maxIters: u32 = 0;
 
+        var exec_logic_count: usize = 0;
+        defer std.log.info("exec_logic({d}) inner loop count: {d}", .{ idx, exec_logic_count });
         while (true) {
+            defer exec_logic_count += 1;
             self.vm_log("activeLogicNo => {d}", .{self.activeLogicNo});
             // TODO: (DELETE ME) Safety to prevent runaway..
             if (maxIters > 1200) {
@@ -1161,6 +1212,10 @@ pub const VM = struct {
         }
     }
 
+    fn agi_stop_update(self: *VM, objNo: u8) void {
+        self.gameObjects[objNo].update = false;
+    }
+
     pub fn agi_animate_obj(self: *VM, objNo: u8) void {
         self.gameObjects[objNo] = go.GameObject.init();
         std.log.info("agi_animate_obj({d}) invoked", .{objNo});
@@ -1182,6 +1237,7 @@ pub const VM = struct {
     pub fn agi_get_posn(self: *VM, objNo: u8, varNo1: u8, varNo2: u8) void {
         self.vars[varNo1] = self.gameObjects[objNo].x;
         self.vars[varNo2] = self.gameObjects[objNo].y;
+        std.log.info("agi_get_posn({d}:objNo, {d}:varNo1, {d}:varNo2", .{ objNo, varNo1, varNo2 });
     }
 
     pub fn agi_observe_blocks(self: *VM, objNo: u8) void {
@@ -1273,6 +1329,20 @@ pub const VM = struct {
 
     pub fn agi_load_view_v(self: *VM, varNo: u8) anyerror!void {
         try self.agi_load_view(self.read_var(varNo));
+    }
+
+    fn agi_block(self: *VM, x1: u8, y1: u8, x2: u8, y2: u8) void {
+        self.blockX1 = x1;
+        self.blockY1 = y1;
+        self.blockX2 = x2;
+        self.blockY2 = y2;
+    }
+
+    fn agi_unblock(self: *VM) void {
+        self.blockX1 = 0;
+        self.blockY1 = 0;
+        self.blockX2 = 0;
+        self.blockY2 = 0;
     }
 
     pub fn agi_set_horizon(self: *VM, y: u8) void {
@@ -1381,13 +1451,14 @@ pub const VM = struct {
         self.agi_set_priority(objNo, self.read_var(varNo));
     }
 
-    pub fn agi_stop_cycling(self: *VM, objNo: u8) void {
+    pub fn agi_stop_cycling(_: *VM, objNo: u8) void {
         self.gameObjects[objNo].celCycling = false;
         std.log.info("stop_cycling({d}:objNo)...", .{objNo});
     }
 
     pub fn agi_start_cycling(self: *VM, objNo: u8) void {
         self.gameObjects[objNo].celCycling = true;
+        std.log.info("start_cycling({d}:objNo)...", .{objNo});
     }
 
     pub fn agi_normal_cycle(self: *VM, objNo: u8) void {

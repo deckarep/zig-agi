@@ -4,6 +4,7 @@ const ArrayList = std.ArrayList;
 var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
 const allocator = arena.allocator();
 
+const prompt = @import("prompt.zig");
 const go = @import("game_object.zig");
 const cmds = @import("agi_cmds.zig");
 const hlp = @import("raylib_helpers.zig");
@@ -175,11 +176,16 @@ pub const VM = struct {
         self.flags[2] = false; // The player has entered a command
         self.flags[4] = false; // said accepted user input
 
+        var egoObj = &self.gameObjects[0];
+
         var egoDir = self.read_var(6);
         if (self.programControl) {
-            egoDir = self.read_var(6);
+            self.vars[6] = @enumToInt(egoObj.direction);
+            std.log.info("vars[6] => {d}", .{self.read_var(6)});
+            //egoDir = self.read_var(6);
         } else {
-            self.vars[6] = egoDir;
+            egoObj.direction = @intToEnum(go.Direction, egoDir);
+            //self.vars[6] = egoDir;
         }
 
         var outer_call_count: usize = 0;
@@ -415,11 +421,10 @@ pub const VM = struct {
 
             // NOTE: this code is getting there.
             // 1. need to draw the correct sizing/x,y placement for higher resolution assets (factor of 4 times bigger)
-            if (obj.viewNo == 44) {
-                //std.log.info("larry => \n egoDir => {d}, movementFlag => {s}, dir => {s}", .{ self.read_var(6), obj.movementFlag, obj.direction });
-                std.log.info("egoDir => {d}, egoX => {d}, oldEgoX => {d}, egoY => {d}, oldEgoY => {d}", .{ self.read_var(6), self.read_var(38), self.read_var(40), self.read_var(39), self.read_var(41) });
-                try self.vm_draw_view(obj.viewNo, obj.loop, obj.cel, @intToFloat(f32, obj.x), @intToFloat(f32, obj.y));
-            }
+
+            //std.log.info("larry => \n egoDir => {d}, movementFlag => {s}, dir => {s}", .{ self.read_var(6), obj.movementFlag, obj.direction });
+            std.log.info("egoDir => {d}, egoX => {d}, oldEgoX => {d}, egoY => {d}, oldEgoY => {d}", .{ self.read_var(6), self.read_var(38), self.read_var(40), self.read_var(39), self.read_var(41) });
+            try self.vm_draw_view(obj.viewNo, obj.loop, obj.cel, @intToFloat(f32, obj.x), @intToFloat(f32, obj.y));
         }
     }
 
@@ -939,9 +944,38 @@ pub const VM = struct {
                             try volPartFbs.seekTo(0);
                             break;
                         }
+
+                        std.log.info(">>>>>>>>> var[6] => {d}", .{self.read_var(6)});
                     }
                 },
             }
+        }
+    }
+
+    fn breakpoint(self: *VM) !void {
+        const stdin = std.io.getStdIn().reader();
+        const stdout = std.io.getStdOut().writer();
+        try stdout.print("(BREAKPOINT HIT): ", .{});
+
+        var buf: [10]u8 = undefined;
+        while (try stdin.readUntilDelimiterOrEof(buf[0..], '\n')) |user_input| {
+            if (std.mem.eql(u8, user_input, "c")) {
+                break;
+            } else if (std.mem.eql(u8, user_input, "q")) {
+                try stdout.print("Quitting...\n", .{});
+                std.os.exit(0);
+            } else if (std.mem.startsWith(u8, user_input, "v")) {
+                const varIdx = try std.fmt.parseInt(usize, user_input[1..], 10);
+                try stdout.print("var[{d}] => {d}\n", .{ varIdx, self.read_var(varIdx) });
+            } else if (std.mem.startsWith(u8, user_input, "f")) {
+                const flagIdx = try std.fmt.parseInt(usize, user_input[1..], 10);
+                try stdout.print("flag[{d}] => {s}\n", .{ flagIdx, self.flags[flagIdx] });
+            } else {
+                try stdout.print("??\n", .{});
+            }
+
+            try stdout.print("(C:c)ontinue, (Q:q)uit\n", .{});
+            try stdout.print("> ", .{});
         }
     }
 
@@ -1238,6 +1272,7 @@ pub const VM = struct {
         self.vars[varNo1] = self.gameObjects[objNo].x;
         self.vars[varNo2] = self.gameObjects[objNo].y;
         std.log.info("agi_get_posn({d}:objNo, {d}:varNo1, {d}:varNo2", .{ objNo, varNo1, varNo2 });
+        //self.breakpoint() catch unreachable;
     }
 
     pub fn agi_observe_blocks(self: *VM, objNo: u8) void {
@@ -1451,7 +1486,7 @@ pub const VM = struct {
         self.agi_set_priority(objNo, self.read_var(varNo));
     }
 
-    pub fn agi_stop_cycling(_: *VM, objNo: u8) void {
+    pub fn agi_stop_cycling(self: *VM, objNo: u8) void {
         self.gameObjects[objNo].celCycling = false;
         std.log.info("stop_cycling({d}:objNo)...", .{objNo});
     }
@@ -1475,6 +1510,7 @@ pub const VM = struct {
 
     fn agi_program_control(self: *VM) void {
         self.programControl = true;
+        std.log.info("agi_programControl({s}", .{true});
     }
 
     fn agi_player_control(self: *VM) void {

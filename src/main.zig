@@ -26,6 +26,9 @@ const sampleTexture = pathTextures ++ "43_0_0.png";
 // VM Runtime
 //  * Interpret runs at 1/20th of a second * var[10] (time delay)...
 
+// Debugger
+//  * TODO: come up with a schema breakpoint catcher for when a var or flag wants to be monitored like: v60-r (whenever var 60 is read) or v60-w (whenever written) or both: v60-rw
+
 // Logic:
 //  * This -> [ indicates a line comment in original source.
 //  * if (initLog) {} means "initial logic" or constructor code for a logic room.
@@ -54,7 +57,7 @@ const sampleTexture = pathTextures ++ "43_0_0.png";
 //  * NOTE: The music stream needs to be updated at a low enough latency therefore I might need to set that up in it's own dedicated thread.
 //  * NOTE: One user commented to try and increase the buffer size!!!
 
-var vmInstance = agi_vm.VM.init(false);
+var vmInstance = agi_vm.VM.init(true);
 
 // Adapted from: https://github.com/r1sc/agi.js/blob/master/Interpreter.ts
 // TODO: all array indices should be usize.
@@ -131,6 +134,9 @@ pub fn main() anyerror!void {
         std.log.info("before vm_cycle", .{});
         try vmInstance.vm_cycle();
         std.log.info("after vm_cycle", .{});
+
+        const symbol = c.TextFormat("%s: %03i => %03i", "vars", @as(c_int, 6), vmInstance.read_var(6));
+        c.DrawText(symbol, 60, 60, 25, c.GREEN);
 
         //std.log.info("frame: {d}", .{c.GetFrameTime()});
 

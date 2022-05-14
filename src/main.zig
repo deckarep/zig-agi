@@ -57,7 +57,7 @@ const sampleTexture = pathTextures ++ "43_0_0.png";
 //  * NOTE: The music stream needs to be updated at a low enough latency therefore I might need to set that up in it's own dedicated thread.
 //  * NOTE: One user commented to try and increase the buffer size!!!
 
-var vmInstance = agi_vm.VM.init(true);
+var vmInstance = agi_vm.VM.init(false);
 
 // Adapted from: https://github.com/r1sc/agi.js/blob/master/Interpreter.ts
 // TODO: all array indices should be usize.
@@ -131,9 +131,7 @@ pub fn main() anyerror!void {
         c.BeginDrawing();
         c.ClearBackground(c.BLACK);
 
-        std.log.info("before vm_cycle", .{});
         try vmInstance.vm_cycle();
-        std.log.info("after vm_cycle", .{});
 
         const symbol = c.TextFormat("%s: %03i => %03i", "vars", @as(c_int, 6), vmInstance.read_var(6));
         c.DrawText(symbol, 60, 60, 25, c.GREEN);
@@ -213,7 +211,7 @@ fn moniterFlagSet(flags: []const monFlag) !void {
         //defer allocator.free(cstr);
 
         // NOTE: need to pass pointer child-type hence the .ptr or else get C ABI Zig bug.  :shrug:
-        const symbol = c.TextFormat("%s: %03i => %s", f.name.ptr, f.idx, if (vmInstance.flags[f.idx]) "T" else "F");
+        const symbol = c.TextFormat("%s: %03i => %s", f.name.ptr, f.idx, if (vmInstance.get_flag(f.idx)) "T" else "F");
         c.DrawText(symbol, xOffset, yOffset + (@intCast(c_int, i) * 18), size, c.WHITE);
         i += 1;
     }

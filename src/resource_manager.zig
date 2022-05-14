@@ -241,7 +241,7 @@ pub const ResourceManager = struct {
         if (self.internal2.get(k)) |*foundTexture| {
             return foundTexture.resource.Texture;
         } else {
-            std.log.warn("texture file: {s} is missing!", .{key.file_path});
+            //std.log.warn("texture file: {s} is missing!", .{key.file_path});
         }
 
         return null;

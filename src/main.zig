@@ -57,7 +57,7 @@ const sampleTexture = pathTextures ++ "43_0_0.png";
 //  * NOTE: The music stream needs to be updated at a low enough latency therefore I might need to set that up in it's own dedicated thread.
 //  * NOTE: One user commented to try and increase the buffer size!!!
 
-var vmInstance = agi_vm.VM.init(false);
+var vmInstance = agi_vm.VM.init(true);
 
 // Adapted from: https://github.com/r1sc/agi.js/blob/master/Interpreter.ts
 // TODO: all array indices should be usize.

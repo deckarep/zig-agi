@@ -228,7 +228,15 @@ pub const VM = struct {
                 self.agi_unanimate_all();
                 // RC: Not sure what to do with this line.
                 //self.loadedLogics = self.loadedLogics.slice(0, 1);
-                self.agi_player_control();
+                {
+                    // TODO: clean this shit up.
+                    // Super ugly hack to pass dynamic args since we need to pass in an *aw.Args type.
+                    // But we only have to do this in a few spots and I will go back and clean this up.
+                    var buf: [1]u8 = undefined;
+                    var emptyArgs = &aw.Args.init(&buf);
+                    self.agi_player_control(emptyArgs);
+                }
+
                 self.agi_unblock();
 
                 {
@@ -800,58 +808,45 @@ pub const VM = struct {
                         } else if (std.mem.eql(u8, statementFunc.name, "set_loop_v")) {
                             self.agi_set_loop_v(try myArgs.eat(&volPartFbs, 2));
                         } else if (std.mem.eql(u8, statementFunc.name, "set_cel")) {
-                            const a = try volPartFbs.reader().readByte();
-                            const b = try volPartFbs.reader().readByte();
-                            self.agi_set_cel(a, b);
+                            self.agi_set_cel(try myArgs.eat(&volPartFbs, 2));
                         } else if (std.mem.eql(u8, statementFunc.name, "set_cel_v")) {
-                            const a = try volPartFbs.reader().readByte();
-                            const b = try volPartFbs.reader().readByte();
-                            self.agi_set_cel_v(a, b);
+                            self.agi_set_cel_v(try myArgs.eat(&volPartFbs, 2));
                         } else if (std.mem.eql(u8, statementFunc.name, "set_priority")) {
-                            const a = try volPartFbs.reader().readByte();
-                            const b = try volPartFbs.reader().readByte();
-                            self.agi_set_priority(a, b);
+                            self.agi_set_priority(try myArgs.eat(&volPartFbs, 2));
                         } else if (std.mem.eql(u8, statementFunc.name, "set_priority_v")) {
-                            const a = try volPartFbs.reader().readByte();
-                            const b = try volPartFbs.reader().readByte();
-                            self.agi_set_priority_v(a, b);
+                            self.agi_set_priority_v(try myArgs.eat(&volPartFbs, 2));
                         } else if (std.mem.eql(u8, statementFunc.name, "current_view")) {
-                            const a = try volPartFbs.reader().readByte();
-                            const b = try volPartFbs.reader().readByte();
-                            self.agi_currentview(a, b);
+                            self.agi_currentview(try myArgs.eat(&volPartFbs, 2));
                         } else if (std.mem.eql(u8, statementFunc.name, "stop_sound")) {
-                            self.agi_stop_sound();
+                            self.agi_stop_sound(try myArgs.eat(&volPartFbs, 0));
                         } else if (std.mem.eql(u8, statementFunc.name, "show_pic")) {
-                            self.agi_show_pic();
+                            self.agi_show_pic(try myArgs.eat(&volPartFbs, 0));
                         } else if (std.mem.eql(u8, statementFunc.name, "program_control")) {
-                            self.agi_program_control();
+                            self.agi_program_control(try myArgs.eat(&volPartFbs, 0));
                         } else if (std.mem.eql(u8, statementFunc.name, "player_control")) {
-                            self.agi_player_control();
+                            self.agi_player_control(try myArgs.eat(&volPartFbs, 0));
                         } else if (std.mem.eql(u8, statementFunc.name, "start_cycling")) {
-                            const a = try volPartFbs.reader().readByte();
-                            self.agi_start_cycling(a);
+                            self.agi_start_cycling(try myArgs.eat(&volPartFbs, 1));
                         } else if (std.mem.eql(u8, statementFunc.name, "erase")) {
-                            const a = try volPartFbs.reader().readByte();
-                            self.agi_erase(a);
+                            self.agi_erase(try myArgs.eat(&volPartFbs, 1));
                         } else if (std.mem.eql(u8, statementFunc.name, "stop_cycling")) {
-                            const a = try volPartFbs.reader().readByte();
-                            self.agi_stop_cycling(a);
+                            self.agi_stop_cycling(try myArgs.eat(&volPartFbs, 1));
                         } else if (std.mem.eql(u8, statementFunc.name, "add_to_pic")) {
-                            const a = try volPartFbs.reader().readByte();
-                            const b = try volPartFbs.reader().readByte();
-                            const c = try volPartFbs.reader().readByte();
-                            const d = try volPartFbs.reader().readByte();
-                            const e = try volPartFbs.reader().readByte();
-                            const f = try volPartFbs.reader().readByte();
-                            const g = try volPartFbs.reader().readByte();
-                            self.agi_add_to_pic(a, b, c, d, e, f, g);
+                            // const a = try volPartFbs.reader().readByte();
+                            // const b = try volPartFbs.reader().readByte();
+                            // const c = try volPartFbs.reader().readByte();
+                            // const d = try volPartFbs.reader().readByte();
+                            // const e = try volPartFbs.reader().readByte();
+                            // const f = try volPartFbs.reader().readByte();
+                            // const g = try volPartFbs.reader().readByte();
+                            self.agi_add_to_pic(try myArgs.eat(&volPartFbs, 7));
                         } else if (std.mem.eql(u8, statementFunc.name, "move_obj")) {
-                            const a = try volPartFbs.reader().readByte();
-                            const b = try volPartFbs.reader().readByte();
-                            const c = try volPartFbs.reader().readByte();
-                            const d = try volPartFbs.reader().readByte();
-                            const e = try volPartFbs.reader().readByte();
-                            self.agi_move_obj(a, b, c, d, e);
+                            // const a = try volPartFbs.reader().readByte();
+                            // const b = try volPartFbs.reader().readByte();
+                            // const c = try volPartFbs.reader().readByte();
+                            // const d = try volPartFbs.reader().readByte();
+                            // const e = try volPartFbs.reader().readByte();
+                            self.agi_move_obj(try myArgs.eat(&volPartFbs, 5));
                         } else {
                             const o = opCodeNR;
                             const n = statementFunc.name;
@@ -1441,7 +1436,7 @@ pub const VM = struct {
         self.vm_log("agi_sound({d}, {d}) invoked...", .{ soundNo, flagNo });
     }
 
-    pub fn agi_stop_sound(self: *VM) void {
+    pub fn agi_stop_sound(self: *VM, _: *aw.Args) void {
         self.vm_log("agi_stop_sound() invoked...", .{});
     }
 
@@ -1479,17 +1474,41 @@ pub const VM = struct {
         //this.loadedPics[picNo] = null;
     }
 
-    pub fn agi_add_to_pic(self: *VM, viewNo: u8, loopNo: u8, celNo: u8, x: u8, y: u8, priority: u8, margin: u8) void {
+    pub fn agi_add_to_pic(self: *VM, args: *aw.Args) void {
+        const viewNo = args.get.a();
+        const loopNo = args.get.b();
+        const celNo = args.get.c();
+        const x = args.get.d();
+        const y = args.get.e();
+        const priority = args.get.f();
+        const margin = args.get.g();
+
         // TODO: Add margin
         //this.screen.bltView(viewNo, loopNo, celNo, x, y, priority);
         self.vm_log("agi_add_to_pic({d},{d},{d},{d},{d},{d},{d})", .{ viewNo, loopNo, celNo, x, y, priority, margin });
     }
 
-    pub fn agi_add_to_pic_v(self: *VM, varNo1: u8, varNo2: u8, varNo3: u8, varNo4: u8, varNo5: u8, varNo6: u8, varNo7: u8) void {
-        self.agi_add_to_pic(self.read_var(varNo1), self.read_var(varNo2), self.read_var(varNo3), self.read_var(varNo4), self.read_var(varNo5), self.read_var(varNo6), self.read_var(varNo7));
+    pub fn agi_add_to_pic_v(self: *VM, args: *aw.Args) void {
+        const varNo1 = args.get.a();
+        const varNo2 = args.get.b();
+        const varNo3 = args.get.c();
+        const varNo4 = args.get.d();
+        const varNo5 = args.get.e();
+        const varNo6 = args.get.f();
+        const varNo7 = args.get.g();
+
+        args.set.a(self.read_var(varNo1));
+        args.set.a(self.read_var(varNo2));
+        args.set.a(self.read_var(varNo3));
+        args.set.a(self.read_var(varNo4));
+        args.set.a(self.read_var(varNo5));
+        args.set.a(self.read_var(varNo6));
+        args.set.a(self.read_var(varNo7));
+
+        self.agi_add_to_pic(args.pack());
     }
 
-    pub fn agi_show_pic(self: *VM) void {
+    pub fn agi_show_pic(self: *VM, _: *aw.Args) void {
         self.vm_log("agi_show_pic()", .{});
         // this.screen.bltPic();
         // this.gameObjects.forEach(obj => {
@@ -1542,59 +1561,89 @@ pub const VM = struct {
         self.write_var(varNo, self.gameObjects[objNo].direction);
     }
 
-    pub fn agi_set_cel(self: *VM, objNo: u8, celNo: u8) void {
+    pub fn agi_set_cel(self: *VM, args: *aw.Args) void {
+        const objNo = args.get.a();
+        const celNo = args.get.b();
+
         self.gameObjects[objNo].nextCycle = 1;
         self.gameObjects[objNo].cel = celNo;
     }
 
-    pub fn agi_set_cel_v(self: *VM, objNo: u8, varNo: u8) void {
-        self.agi_set_cel(objNo, self.read_var(varNo));
+    pub fn agi_set_cel_v(self: *VM, args: *aw.Args) void {
+        const objNo = args.get.a();
+        const varNo = args.get.b();
+
+        args.set.a(objNo);
+        args.set.b(self.read_var(varNo));
+
+        self.agi_set_cel(args.pack());
     }
 
-    pub fn agi_set_priority(self: *VM, objNo: u8, priority: u8) void {
+    pub fn agi_set_priority(self: *VM, args: *aw.Args) void {
+        const objNo = args.get.a();
+        const priority = args.get.b();
+
         self.gameObjects[objNo].priority = priority;
         self.gameObjects[objNo].fixedPriority = true;
     }
 
-    pub fn agi_set_priority_v(self: *VM, objNo: u8, varNo: u8) void {
-        self.agi_set_priority(objNo, self.read_var(varNo));
+    pub fn agi_set_priority_v(self: *VM, args: *aw.Args) void {
+        const objNo = args.get.a();
+        const varNo = args.get.b();
+
+        args.set.a(objNo);
+        args.set.b(self.read_var(varNo));
+
+        self.agi_set_priority(args.pack());
     }
 
-    pub fn agi_stop_cycling(self: *VM, objNo: u8) void {
+    pub fn agi_stop_cycling(self: *VM, args: *aw.Args) void {
+        const objNo = args.get.a();
         self.gameObjects[objNo].celCycling = false;
         self.vm_log("stop_cycling({d}:objNo)...", .{objNo});
     }
 
-    pub fn agi_start_cycling(self: *VM, objNo: u8) void {
+    pub fn agi_start_cycling(self: *VM, args: *aw.Args) void {
+        const objNo = args.get.a();
         self.gameObjects[objNo].celCycling = true;
         self.vm_log("start_cycling({d}:objNo)...", .{objNo});
     }
 
-    pub fn agi_normal_cycle(self: *VM, objNo: u8) void {
+    pub fn agi_normal_cycle(self: *VM, args: *aw.Args) void {
+        const objNo = args.get.a();
         self.gameObjects[objNo].reverseCycle = false;
     }
 
-    pub fn agi_normal_motion(self: *VM, objNo: u8) void {
+    pub fn agi_normal_motion(self: *VM, args: *aw.Args) void {
+        const objNo = args.get.a();
         self.gameObjects[objNo].motion = true;
     }
 
-    pub fn agi_currentview(self: *VM, objNo: u8, varNo: u8) void {
+    pub fn agi_currentview(self: *VM, args: *aw.Args) void {
+        const objNo = args.get.a();
+        const varNo = args.get.b();
         self.write_var(varNo, self.gameObjects[objNo].viewNo);
     }
 
-    fn agi_player_control(self: *VM) void {
+    fn agi_player_control(self: *VM, _: *aw.Args) void {
         self.programControl = false;
 
         // NOTE: Edge case in scummvm logic only when under playerControl called.
         // https://github.com/scummvm/scummvm/blob/90f2ff2532ca71033b4393b9ce604c9b0e6cafa0/engines/agi/op_cmd.cpp#L1612
     }
 
-    fn agi_program_control(self: *VM) void {
+    fn agi_program_control(self: *VM, _: *aw.Args) void {
         self.programControl = true;
         self.vm_log("agi_programControl({s}", .{true});
     }
 
-    fn agi_move_obj(self: *VM, objNo: u8, x: u8, y: u8, stepSpeed: u8, flagNo: u8) void {
+    fn agi_move_obj(self: *VM, args: *aw.Args) void {
+        const objNo = args.get.a();
+        const x = args.get.b();
+        const y = args.get.c();
+        const stepSpeed = args.get.d();
+        const flagNo = args.get.e();
+
         self.gameObjects[objNo].moveToX = x;
         self.gameObjects[objNo].moveToY = y;
         self.gameObjects[objNo].moveToStep = stepSpeed;
@@ -1632,7 +1681,9 @@ pub const VM = struct {
         self.gameObjects[objNo].fixedLoop = false;
     }
 
-    fn agi_erase(self: *VM, objNo: u8) void {
+    fn agi_erase(self: *VM, args: *aw.Args) void {
+        const objNo = args.get.a();
+
         var obj = &self.gameObjects[objNo];
         obj.draw = false;
         obj.loop = 0;

@@ -2,11 +2,12 @@ const std = @import("std");
 const ArrayList = std.ArrayList;
 
 var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-const allocator = arena.allocator();
+pub const allocator = arena.allocator();
 
 const prompt = @import("prompt.zig");
 const go = @import("game_object.zig");
 const cmds = @import("agi_cmds.zig");
+const stmts = @import("agi_statements.zig");
 const hlp = @import("raylib_helpers.zig");
 
 const clib = @import("c_defs.zig").c;
@@ -16,7 +17,7 @@ const rm = @import("resource_manager.zig");
 const aw = @import("args.zig");
 
 const pathTextures = "/Users/deckarep/Desktop/ralph-agi/test-agi-game/extracted/view/";
-const sampleTexture = pathTextures ++ "43_0_0.png";
+pub const sampleTexture = pathTextures ++ "43_0_0.png";
 
 // HACK zone, just doing a quick and dirty comptime embed file.
 const rootPath = "/Users/deckarep/Desktop/ralph-agi/test-agi-game/";
@@ -34,7 +35,7 @@ const TOTAL_VARS: usize = 256;
 const TOTAL_FLAGS: usize = 256;
 const TOTAL_CONTROLLERS: usize = 256;
 
-const TOTAL_GAME_OBJS: usize = 16; // also called screen objs.
+pub const TOTAL_GAME_OBJS: usize = 16; // also called screen objs.
 
 const LOGIC_STACK_SIZE: usize = 255; // Arbitrary size has been chosen of 255, I don't expect to exceed it with tech from 1980s.
 const DIR_INDEX_SIZE: usize = 300;
@@ -155,7 +156,7 @@ pub const VM = struct {
         self.set_flag(11, true); // Logic 0 executed for the first time
         self.set_flag(5, true); // Room script executed for the first time
 
-        self.agi_unanimate_all();
+        try stmts.agi_unanimate_all(self);
         //self.agi_load_logic(0);
     }
 
@@ -200,7 +201,7 @@ pub const VM = struct {
                 var buf: [1]u8 = undefined;
                 var myArgs = &aw.Args.init(&buf);
                 myArgs.set.a(0);
-                try self.agi_call(myArgs);
+                try stmts.agi_call(self, myArgs);
             }
             self.set_flag(11, false); // Logic 0 executed for the first time.
 
@@ -224,8 +225,8 @@ pub const VM = struct {
 
             if (self.newroom != 0) {
                 // need to start handling this logic next, since new room is changed.
-                self.agi_stop_update(0);
-                self.agi_unanimate_all();
+                try stmts.agi_stop_update(self, 0);
+                try stmts.agi_unanimate_all(self);
                 // RC: Not sure what to do with this line.
                 //self.loadedLogics = self.loadedLogics.slice(0, 1);
                 {
@@ -234,10 +235,10 @@ pub const VM = struct {
                     // But we only have to do this in a few spots and I will go back and clean this up.
                     var buf: [1]u8 = undefined;
                     var emptyArgs = &aw.Args.init(&buf);
-                    self.agi_player_control(emptyArgs);
+                    try stmts.agi_player_control(self, emptyArgs);
                 }
 
-                self.agi_unblock();
+                try stmts.agi_unblock(self);
 
                 {
                     // TODO: clean this shit up.
@@ -246,7 +247,7 @@ pub const VM = struct {
                     var buf: [1]u8 = undefined;
                     var myArgs = &aw.Args.init(&buf);
                     myArgs.set.a(36);
-                    self.agi_set_horizon(myArgs);
+                    try stmts.agi_set_horizon(self, myArgs);
                 }
 
                 self.write_var(1, self.read_var(0));
@@ -452,7 +453,7 @@ pub const VM = struct {
         }
     }
 
-    fn vm_view_key(buffer: []u8, viewNo: u8, loop: u8, cel: u8) ![]u8 {
+    pub fn vm_view_key(buffer: []u8, viewNo: u8, loop: u8, cel: u8) ![]u8 {
         var fmtStr = try std.fmt.bufPrint(buffer[0..], "{s}{d}_{d}_{d}.png", .{ pathTextures, viewNo, loop, cel });
         return fmtStr;
     }
@@ -716,163 +717,159 @@ pub const VM = struct {
                         var buf: [10]u8 = undefined;
                         var myArgs = &aw.Args.init(&buf);
 
-                        // Note: can't use a switch on strings in Zig.
-                        if (std.mem.eql(u8, statementFunc.name, "new_room")) {
-                            self.agi_new_room(try myArgs.eat(&volPartFbs, 1));
-                        } else if (std.mem.eql(u8, statementFunc.name, "quit")) {
-                            self.agi_quit(try myArgs.eat(&volPartFbs, 1));
-                        } else if (std.mem.eql(u8, statementFunc.name, "call")) {
-                            try self.agi_call(try myArgs.eat(&volPartFbs, 1));
-                        } else if (std.mem.eql(u8, statementFunc.name, "call_v")) {
-                            try self.agi_call_v(try myArgs.eat(&volPartFbs, 1));
-                        } else if (std.mem.eql(u8, statementFunc.name, "force_update")) {
-                            self.agi_force_update(try myArgs.eat(&volPartFbs, 1));
-                        } else if (std.mem.eql(u8, statementFunc.name, "assignn")) {
-                            self.agi_assignn(try myArgs.eat(&volPartFbs, 2));
-                        } else if (std.mem.eql(u8, statementFunc.name, "assignv")) {
-                            self.agi_assignv(try myArgs.eat(&volPartFbs, 2));
-                        } else if (std.mem.eql(u8, statementFunc.name, "clear_lines")) {
-                            self.agi_clear_lines(try myArgs.eat(&volPartFbs, 3));
-                        } else if (std.mem.eql(u8, statementFunc.name, "display")) {
-                            self.agi_display(try myArgs.eat(&volPartFbs, 3));
-                        } else if (std.mem.eql(u8, statementFunc.name, "display_v")) {
-                            self.agi_display_v(try myArgs.eat(&volPartFbs, 3));
-                        } else if (std.mem.eql(u8, statementFunc.name, "set")) {
-                            self.agi_set(try myArgs.eat(&volPartFbs, 1));
-                        } else if (std.mem.eql(u8, statementFunc.name, "prevent_input")) {
-                            self.agi_prevent_input(try myArgs.eat(&volPartFbs, 0));
-                        } else if (std.mem.eql(u8, statementFunc.name, "reset")) {
-                            self.agi_reset(try myArgs.eat(&volPartFbs, 1));
-                        } else if (std.mem.eql(u8, statementFunc.name, "reset_v")) {
-                            self.agi_reset_v(try myArgs.eat(&volPartFbs, 1));
-                        } else if (std.mem.eql(u8, statementFunc.name, "animate_obj")) {
-                            self.agi_animate_obj(try myArgs.eat(&volPartFbs, 1));
-                        } else if (std.mem.eql(u8, statementFunc.name, "step_size")) {
-                            self.agi_step_size(try myArgs.eat(&volPartFbs, 2));
-                        } else if (std.mem.eql(u8, statementFunc.name, "step_time")) {
-                            self.agi_step_time(try myArgs.eat(&volPartFbs, 2));
-                        } else if (std.mem.eql(u8, statementFunc.name, "cycle_time")) {
-                            self.agi_cycle_time(try myArgs.eat(&volPartFbs, 2));
-                        } else if (std.mem.eql(u8, statementFunc.name, "get_posn")) {
-                            self.agi_get_posn(try myArgs.eat(&volPartFbs, 3));
-                        } else if (std.mem.eql(u8, statementFunc.name, "position")) {
-                            self.agi_position(try myArgs.eat(&volPartFbs, 3));
-                        } else if (std.mem.eql(u8, statementFunc.name, "position_v")) {
-                            self.agi_position_v(try myArgs.eat(&volPartFbs, 3));
-                        } else if (std.mem.eql(u8, statementFunc.name, "reposition_to")) {
-                            self.agi_reposition_to(try myArgs.eat(&volPartFbs, 3));
-                        } else if (std.mem.eql(u8, statementFunc.name, "reposition_to_v")) {
-                            self.agi_reposition_to_v(try myArgs.eat(&volPartFbs, 3));
-                        } else if (std.mem.eql(u8, statementFunc.name, "observe_blocks")) {
-                            self.agi_observe_blocks(try myArgs.eat(&volPartFbs, 1));
-                        } else if (std.mem.eql(u8, statementFunc.name, "observe_objs")) {
-                            self.agi_observe_objs(try myArgs.eat(&volPartFbs, 1));
-                        } else if (std.mem.eql(u8, statementFunc.name, "ignore_objs")) {
-                            self.agi_ignore_objs(try myArgs.eat(&volPartFbs, 1));
-                        } else if (std.mem.eql(u8, statementFunc.name, "observe_horizon")) {
-                            self.agi_observe_horizon(try myArgs.eat(&volPartFbs, 1));
-                        } else if (std.mem.eql(u8, statementFunc.name, "fix_loop")) {
-                            self.agi_fix_loop(try myArgs.eat(&volPartFbs, 1));
-                        } else if (std.mem.eql(u8, statementFunc.name, "release_loop")) {
-                            self.agi_release_loop(try myArgs.eat(&volPartFbs, 1));
-                        } else if (std.mem.eql(u8, statementFunc.name, "lindirectn")) {
-                            self.agi_lindirectn(try myArgs.eat(&volPartFbs, 2));
-                        } else if (std.mem.eql(u8, statementFunc.name, "increment")) {
-                            self.agi_increment(try myArgs.eat(&volPartFbs, 1));
-                        } else if (std.mem.eql(u8, statementFunc.name, "decrement")) {
-                            self.agi_decrement(try myArgs.eat(&volPartFbs, 1));
-                        } else if (std.mem.eql(u8, statementFunc.name, "load_view_v")) {
-                            try self.agi_load_view_v(try myArgs.eat(&volPartFbs, 1));
-                        } else if (std.mem.eql(u8, statementFunc.name, "load_view")) {
-                            try self.agi_load_view(try myArgs.eat(&volPartFbs, 1));
-                        } else if (std.mem.eql(u8, statementFunc.name, "set_view")) {
-                            self.agi_set_view(try myArgs.eat(&volPartFbs, 2));
-                        } else if (std.mem.eql(u8, statementFunc.name, "set_view_v")) {
-                            self.agi_set_view_v(try myArgs.eat(&volPartFbs, 2));
-                        } else if (std.mem.eql(u8, statementFunc.name, "set_horizon")) {
-                            self.agi_set_horizon(try myArgs.eat(&volPartFbs, 1));
-                        } else if (std.mem.eql(u8, statementFunc.name, "load_sound")) {
-                            self.agi_load_sound(try myArgs.eat(&volPartFbs, 1));
-                        } else if (std.mem.eql(u8, statementFunc.name, "load_pic")) {
-                            self.agi_load_pic(try myArgs.eat(&volPartFbs, 1));
-                        } else if (std.mem.eql(u8, statementFunc.name, "draw_pic")) {
-                            self.agi_draw_pic(try myArgs.eat(&volPartFbs, 1));
-                        } else if (std.mem.eql(u8, statementFunc.name, "draw")) {
-                            self.agi_draw(try myArgs.eat(&volPartFbs, 1));
-                        } else if (std.mem.eql(u8, statementFunc.name, "discard_pic")) {
-                            self.agi_discard_pic(try myArgs.eat(&volPartFbs, 1));
-                        } else if (std.mem.eql(u8, statementFunc.name, "sound")) {
-                            self.agi_sound(try myArgs.eat(&volPartFbs, 2));
-                        } else if (std.mem.eql(u8, statementFunc.name, "set_loop")) {
-                            self.agi_set_loop(try myArgs.eat(&volPartFbs, 2));
-                        } else if (std.mem.eql(u8, statementFunc.name, "set_loop_v")) {
-                            self.agi_set_loop_v(try myArgs.eat(&volPartFbs, 2));
-                        } else if (std.mem.eql(u8, statementFunc.name, "set_cel")) {
-                            self.agi_set_cel(try myArgs.eat(&volPartFbs, 2));
-                        } else if (std.mem.eql(u8, statementFunc.name, "set_cel_v")) {
-                            self.agi_set_cel_v(try myArgs.eat(&volPartFbs, 2));
-                        } else if (std.mem.eql(u8, statementFunc.name, "set_priority")) {
-                            self.agi_set_priority(try myArgs.eat(&volPartFbs, 2));
-                        } else if (std.mem.eql(u8, statementFunc.name, "set_priority_v")) {
-                            self.agi_set_priority_v(try myArgs.eat(&volPartFbs, 2));
-                        } else if (std.mem.eql(u8, statementFunc.name, "current_view")) {
-                            self.agi_currentview(try myArgs.eat(&volPartFbs, 2));
-                        } else if (std.mem.eql(u8, statementFunc.name, "stop_sound")) {
-                            self.agi_stop_sound(try myArgs.eat(&volPartFbs, 0));
-                        } else if (std.mem.eql(u8, statementFunc.name, "show_pic")) {
-                            self.agi_show_pic(try myArgs.eat(&volPartFbs, 0));
-                        } else if (std.mem.eql(u8, statementFunc.name, "program_control")) {
-                            self.agi_program_control(try myArgs.eat(&volPartFbs, 0));
-                        } else if (std.mem.eql(u8, statementFunc.name, "player_control")) {
-                            self.agi_player_control(try myArgs.eat(&volPartFbs, 0));
-                        } else if (std.mem.eql(u8, statementFunc.name, "start_cycling")) {
-                            self.agi_start_cycling(try myArgs.eat(&volPartFbs, 1));
-                        } else if (std.mem.eql(u8, statementFunc.name, "erase")) {
-                            self.agi_erase(try myArgs.eat(&volPartFbs, 1));
-                        } else if (std.mem.eql(u8, statementFunc.name, "stop_cycling")) {
-                            self.agi_stop_cycling(try myArgs.eat(&volPartFbs, 1));
-                        } else if (std.mem.eql(u8, statementFunc.name, "add_to_pic")) {
-                            // const a = try volPartFbs.reader().readByte();
-                            // const b = try volPartFbs.reader().readByte();
-                            // const c = try volPartFbs.reader().readByte();
-                            // const d = try volPartFbs.reader().readByte();
-                            // const e = try volPartFbs.reader().readByte();
-                            // const f = try volPartFbs.reader().readByte();
-                            // const g = try volPartFbs.reader().readByte();
-                            self.agi_add_to_pic(try myArgs.eat(&volPartFbs, 7));
-                        } else if (std.mem.eql(u8, statementFunc.name, "move_obj")) {
-                            // const a = try volPartFbs.reader().readByte();
-                            // const b = try volPartFbs.reader().readByte();
-                            // const c = try volPartFbs.reader().readByte();
-                            // const d = try volPartFbs.reader().readByte();
-                            // const e = try volPartFbs.reader().readByte();
-                            self.agi_move_obj(try myArgs.eat(&volPartFbs, 5));
-                        } else {
-                            const o = opCodeNR;
-                            const n = statementFunc.name;
-                            const a = statementFunc.arity;
-                            const rdr = &volPartFbs;
+                        errdefer std.log.warn("statement UNIMPLEMENTED: \"{s}\"", .{statementFunc.name});
+                        try statementFunc.func(self, try myArgs.eat(&volPartFbs, @intCast(usize, statementFunc.arity)));
 
-                            const ignoreList = [_][]const u8{
-                                "set_string",
-                                "set_game_id",
-                                "trace_info",
-                                "set_text_attribute",
-                                "set_menu",
-                                "set_menu_member",
-                                "submit_menu",
-                                "set_cursor_char",
-                                "script_size",
-                                "configure_screen",
-                                "disable_member",
-                                "status_line_off",
-                                "status_line_on",
-                                "set_key",
-                            };
+                        // // Note: can't use a switch on strings in Zig.
+                        // if (std.mem.eql(u8, statementFunc.name, "new_room")) {
+                        //     // NOTE: notice I'm calling the function via a diff convention.
+                        //     // Because I should to move all agi_* functions to another file probably.
+                        //     //self.agi_new_room(try myArgs.eat(&volPartFbs, 1));
+                        //     //VM.agi_new_room(self, try myArgs.eat(&volPartFbs, 1));
+                        //     try statementFunc.func(self, try myArgs.eat(&volPartFbs, 1));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "quit")) {
+                        //     self.agi_quit(try myArgs.eat(&volPartFbs, 1));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "call")) {
+                        //     try self.agi_call(try myArgs.eat(&volPartFbs, 1));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "call_v")) {
+                        //     try self.agi_call_v(try myArgs.eat(&volPartFbs, 1));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "force_update")) {
+                        //     self.agi_force_update(try myArgs.eat(&volPartFbs, 1));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "assignn")) {
+                        //     self.agi_assignn(try myArgs.eat(&volPartFbs, 2));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "assignv")) {
+                        //     self.agi_assignv(try myArgs.eat(&volPartFbs, 2));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "clear_lines")) {
+                        //     self.agi_clear_lines(try myArgs.eat(&volPartFbs, 3));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "display")) {
+                        //     self.agi_display(try myArgs.eat(&volPartFbs, 3));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "display_v")) {
+                        //     self.agi_display_v(try myArgs.eat(&volPartFbs, 3));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "set")) {
+                        //     self.agi_set(try myArgs.eat(&volPartFbs, 1));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "prevent_input")) {
+                        //     self.agi_prevent_input(try myArgs.eat(&volPartFbs, 0));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "reset")) {
+                        //     self.agi_reset(try myArgs.eat(&volPartFbs, 1));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "reset_v")) {
+                        //     self.agi_reset_v(try myArgs.eat(&volPartFbs, 1));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "animate_obj")) {
+                        //     self.agi_animate_obj(try myArgs.eat(&volPartFbs, 1));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "step_size")) {
+                        //     self.agi_step_size(try myArgs.eat(&volPartFbs, 2));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "step_time")) {
+                        //     self.agi_step_time(try myArgs.eat(&volPartFbs, 2));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "cycle_time")) {
+                        //     self.agi_cycle_time(try myArgs.eat(&volPartFbs, 2));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "get_posn")) {
+                        //     self.agi_get_posn(try myArgs.eat(&volPartFbs, 3));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "position")) {
+                        //     self.agi_position(try myArgs.eat(&volPartFbs, 3));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "position_v")) {
+                        //     self.agi_position_v(try myArgs.eat(&volPartFbs, 3));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "reposition_to")) {
+                        //     self.agi_reposition_to(try myArgs.eat(&volPartFbs, 3));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "reposition_to_v")) {
+                        //     self.agi_reposition_to_v(try myArgs.eat(&volPartFbs, 3));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "observe_blocks")) {
+                        //     self.agi_observe_blocks(try myArgs.eat(&volPartFbs, 1));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "observe_objs")) {
+                        //     self.agi_observe_objs(try myArgs.eat(&volPartFbs, 1));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "ignore_objs")) {
+                        //     self.agi_ignore_objs(try myArgs.eat(&volPartFbs, 1));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "observe_horizon")) {
+                        //     self.agi_observe_horizon(try myArgs.eat(&volPartFbs, 1));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "fix_loop")) {
+                        //     self.agi_fix_loop(try myArgs.eat(&volPartFbs, 1));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "release_loop")) {
+                        //     self.agi_release_loop(try myArgs.eat(&volPartFbs, 1));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "lindirectn")) {
+                        //     self.agi_lindirectn(try myArgs.eat(&volPartFbs, 2));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "increment")) {
+                        //     self.agi_increment(try myArgs.eat(&volPartFbs, 1));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "decrement")) {
+                        //     self.agi_decrement(try myArgs.eat(&volPartFbs, 1));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "load_view_v")) {
+                        //     try self.agi_load_view_v(try myArgs.eat(&volPartFbs, 1));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "load_view")) {
+                        //     try self.agi_load_view(try myArgs.eat(&volPartFbs, 1));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "set_view")) {
+                        //     self.agi_set_view(try myArgs.eat(&volPartFbs, 2));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "set_view_v")) {
+                        //     self.agi_set_view_v(try myArgs.eat(&volPartFbs, 2));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "set_horizon")) {
+                        //     self.agi_set_horizon(try myArgs.eat(&volPartFbs, 1));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "load_sound")) {
+                        //     self.agi_load_sound(try myArgs.eat(&volPartFbs, 1));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "load_pic")) {
+                        //     self.agi_load_pic(try myArgs.eat(&volPartFbs, 1));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "draw_pic")) {
+                        //     self.agi_draw_pic(try myArgs.eat(&volPartFbs, 1));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "draw")) {
+                        //     self.agi_draw(try myArgs.eat(&volPartFbs, 1));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "discard_pic")) {
+                        //     self.agi_discard_pic(try myArgs.eat(&volPartFbs, 1));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "sound")) {
+                        //     self.agi_sound(try myArgs.eat(&volPartFbs, 2));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "set_loop")) {
+                        //     self.agi_set_loop(try myArgs.eat(&volPartFbs, 2));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "set_loop_v")) {
+                        //     self.agi_set_loop_v(try myArgs.eat(&volPartFbs, 2));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "set_cel")) {
+                        //     self.agi_set_cel(try myArgs.eat(&volPartFbs, 2));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "set_cel_v")) {
+                        //     self.agi_set_cel_v(try myArgs.eat(&volPartFbs, 2));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "set_priority")) {
+                        //     self.agi_set_priority(try myArgs.eat(&volPartFbs, 2));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "set_priority_v")) {
+                        //     self.agi_set_priority_v(try myArgs.eat(&volPartFbs, 2));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "current_view")) {
+                        //     self.agi_currentview(try myArgs.eat(&volPartFbs, 2));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "stop_sound")) {
+                        //     self.agi_stop_sound(try myArgs.eat(&volPartFbs, 0));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "show_pic")) {
+                        //     self.agi_show_pic(try myArgs.eat(&volPartFbs, 0));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "program_control")) {
+                        //     self.agi_program_control(try myArgs.eat(&volPartFbs, 0));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "player_control")) {
+                        //     self.agi_player_control(try myArgs.eat(&volPartFbs, 0));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "start_cycling")) {
+                        //     self.agi_start_cycling(try myArgs.eat(&volPartFbs, 1));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "erase")) {
+                        //     self.agi_erase(try myArgs.eat(&volPartFbs, 1));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "stop_cycling")) {
+                        //     self.agi_stop_cycling(try myArgs.eat(&volPartFbs, 1));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "add_to_pic")) {
+                        //     self.agi_add_to_pic(try myArgs.eat(&volPartFbs, 7));
+                        // } else if (std.mem.eql(u8, statementFunc.name, "move_obj")) {
+                        //     self.agi_move_obj(try myArgs.eat(&volPartFbs, 5));
+                        // } else {
+                        //     const o = opCodeNR;
+                        //     const n = statementFunc.name;
+                        //     const a = statementFunc.arity;
+                        //     const rdr = &volPartFbs;
 
-                            // Anything here shall be ignored (with its respective args consumed);
-                            try self.consume_skip_or_not_implemented(&ignoreList, rdr, o, n, a);
-                        }
+                        //     const ignoreList = [_][]const u8{
+                        //         "set_string",
+                        //         "set_game_id",
+                        //         "trace_info",
+                        //         "set_text_attribute",
+                        //         "set_menu",
+                        //         "set_menu_member",
+                        //         "submit_menu",
+                        //         "set_cursor_char",
+                        //         "script_size",
+                        //         "configure_screen",
+                        //         "disable_member",
+                        //         "status_line_off",
+                        //         "status_line_on",
+                        //         "set_key",
+                        //     };
+
+                        //     // Anything here shall be ignored (with its respective args consumed);
+                        //     try self.consume_skip_or_not_implemented(&ignoreList, rdr, o, n, a);
+                        // }
+
                         // Finally, special handling for new.room opcode.
                         if (opCodeNR == 0x12) {
                             self.vm_log("new.room opcode special handling (BREAKS)...", .{});
@@ -885,15 +882,7 @@ pub const VM = struct {
         }
     }
 
-    fn eat(_: *VM, rdr: *std.io.FixedBufferStream([]const u8), buf: []u8, count: usize) ![]u8 {
-        var i: usize = 0;
-        while (i < count) : (i += 1) {
-            buf[i] = try rdr.reader().readByte();
-        }
-        return buf[0..count];
-    }
-
-    fn breakpoint(self: *VM) !void {
+    fn vm_breakpoint(self: *VM) !void {
         const stdin = std.io.getStdIn().reader();
         const stdout = std.io.getStdOut().writer();
         try stdout.print("(BREAKPOINT HIT): ", .{});
@@ -963,7 +952,7 @@ pub const VM = struct {
         std.os.exit(statusCode);
     }
 
-    fn vm_log(self: *VM, comptime format: []const u8, args: anytype) void {
+    pub fn vm_log(self: *VM, comptime format: []const u8, args: anytype) void {
         if (self.debug) {
             std.log.debug(format, args);
         }
@@ -1055,343 +1044,11 @@ pub const VM = struct {
         return false;
     }
 
-    // AGI Statement invocations.
-    pub fn agi_new_room(self: *VM, args: *aw.Args) void {
-        const roomNo = args.get.a();
-        self.newroom = roomNo;
-        self.vm_log("NEW_ROOM {d}", .{roomNo});
-    }
-
-    pub fn agi_new_room_v(self: *VM, varNo: usize) void {
-        agi_new_room(self.read_var(varNo));
-    }
-
-    pub fn agi_assignn(self: *VM, args: *aw.Args) void {
-        const varNo = args.get.a();
-        const num = args.get.b();
-
-        self.write_var(varNo, num);
-        self.vm_log("agi_assignn({d}:varNo, {d}:num);", .{ varNo, num });
-    }
-
-    pub fn agi_assignv(self: *VM, args: *aw.Args) void {
-        const varNo1 = args.get.a();
-        const varNo2 = args.get.b();
-
-        args.set.a(varNo1);
-        args.set.b(self.read_var(varNo2));
-
-        self.agi_assignn(args.pack());
-        self.vm_log("agi_assignv({d}:varNo, {d}:num);", .{ varNo1, varNo2 });
-    }
-
-    pub fn agi_call(self: *VM, args: *aw.Args) !void {
-        const logicNo = args.get.a();
-        self.vm_log("api_call({d})...", .{logicNo});
-
-        self.vm_push_logic_stack(self.activeLogicNo);
-        self.activeLogicNo = logicNo;
-
-        // PSEUDO: if (LOGIC_ALREADY_LOADED):
-        // INTERPRET IT.
-        // else:
-        // LOAD IT.
-        // INTERPRET IT.
-        // UNLOADED IT.
-
-        // TEMP hack: for now just load it on demand.
-        const dirIndex = self.logicIndex[logicNo];
-        if (dirIndex.offset == 0) {
-            self.vm_log("a NON-EXISTENT logic script was requested: {d}", .{logicNo});
-            std.os.exit(9);
-        }
-        self.vm_log("vm_exec_logic @ logicNo:{d}, vol:{d}, offset:{d}", .{ logicNo, dirIndex.vol, dirIndex.offset });
-        try self.vm_exec_logic(logicNo, dirIndex.vol, dirIndex.offset);
-
-        //if (this.loadedLogics[logicNo] != null) {
-        //    this.loadedLogics[logicNo].parseLogic();
-        //} else {
-        //    this.agi_load_logic(logicNo);
-        //    this.loadedLogics[logicNo].parseLogic();
-        //    this.loadedLogics[logicNo] = null;
-        //}
-
-        self.activeLogicNo = self.vm_pop_logic_stack();
-    }
-
-    pub fn agi_call_v(self: *VM, args: *aw.Args) !void {
-        const varNo = args.get.a();
-
-        args.set.a(self.read_var(varNo));
-
-        try self.agi_call(args.pack());
-    }
-
-    pub fn agi_quit(self: *VM, args: *aw.Args) void {
-        const statusCode = args.get.a();
-        self.vm_log("agi_quit({d}) exited..", .{statusCode});
-        std.os.exit(statusCode);
-    }
-
-    pub fn agi_load_logic(self: *VM, logNo: usize) void {
-        self.vm_log("agi_load_logic({s}, {d}", .{ self, logNo });
-        //self.loadedLogics[logNo] = new LogicParser(this, logNo);
-    }
-
-    pub fn agi_load_logic_v(self: *VM, varNo: u8) void {
-        self.agi_load_logic(self.read_var(varNo));
-    }
-
-    pub fn agi_increment(self: *VM, args: *aw.Args) void {
-        const varNo = args.get.a();
-
-        if (self.read_var(varNo) < 255) {
-            self.mut_var(varNo, "+=", 1);
-        }
-        self.vm_log("increment({d}:varNo) invoked to val: {d}", .{ varNo, self.read_var(varNo) });
-    }
-
-    pub fn agi_decrement(self: *VM, args: *aw.Args) void {
-        const varNo = args.get.a();
-
-        if (self.read_var(varNo) > 0) {
-            self.mut_var(varNo, "-=", 1);
-        }
-    }
-
-    pub fn agi_set(self: *VM, args: *aw.Args) void {
-        const flagNo = args.get.a();
-        self.set_flag(flagNo, true);
-        self.vm_log("agi_set(flagNo:{d});", .{flagNo});
-    }
-
-    pub fn agi_setv(self: *VM, varNo: u8) void {
-        self.agi_set(self.read_var(varNo));
-        self.vm_log("agi_set(varNo:{d});", .{varNo});
-    }
-
-    pub fn agi_reset(self: *VM, args: *aw.Args) void {
-        const flagNo = args.get.a();
-        self.set_flag(flagNo, false);
-    }
-
-    pub fn agi_reset_v(self: *VM, args: *aw.Args) void {
-        const varNo = args.get.a();
-
-        args.set.a(self.read_var(varNo));
-        self.agi_reset(args.pack());
-    }
-
-    pub fn agi_addn(self: *VM, varNo: usize, num: u8) void {
-        // may overflow...might need to do a wrapping %
-        self.mut_var(varNo, "+=", num);
-    }
-
-    pub fn agi_addv(self: *VM, varNo1: usize, varNo2: usize) void {
-        agi_addn(varNo1, self.read_var(varNo2));
-    }
-
-    pub fn agi_subn(self: *VM, varNo: usize, num: u8) void {
-        self.mut_var(varNo, "-=", num);
-    }
-
-    pub fn agi_subv(self: *VM, varNo1: usize, varNo2: usize) void {
-        agi_subn(varNo1, self.read_var(varNo2));
-    }
-
-    pub fn agi_muln(self: *VM, varNo: usize, val: u8) void {
-        self.mut_var(self.read_var(varNo), "*=", val);
-    }
-
-    pub fn agi_mulv(self: *VM, varNo1: usize, varNo2: usize) void {
-        agi_muln(varNo1, self.read_var(varNo2));
-    }
-
-    pub fn agi_divn(self: *VM, varNo: usize, val: u8) void {
-        self.mut_var(self.read_var(varNo), "/=", val);
-    }
-
-    pub fn agi_divv(self: *VM, varNo1: usize, varNo2: usize) void {
-        agi_divn(varNo1, self.read_var(varNo2));
-    }
-
-    pub fn agi_force_update(self: *VM, args: *aw.Args) void {
-        const objNum = args.get.a();
-        self.gameObjects[objNum].update = true;
-        // this.agi_draw(objNo);
-    }
-
-    pub fn agi_clear_lines(self: *VM, args: *aw.Args) void {
-        // for (var y = fromRow; y < row + 1; y++) {
-        //         this.screen.bltText(y, 0, "                                        ");
-        //     }
-        self.vm_log("agi_clear_lines({d},{d},{d})", .{ args.get.a(), args.get.b(), args.get.c() });
-    }
-
-    pub fn agi_prevent_input(self: *VM, _: *aw.Args) void {
-        self.allowInput = false;
-    }
-
-    pub fn agi_accept_input(self: *VM, _: *aw.Args) void {
-        self.allowInput = true;
-    }
-
-    pub fn agi_unanimate_all(self: *VM) void {
-        var i: usize = 0;
-        while (i < TOTAL_GAME_OBJS) : (i += 1) {
-            self.gameObjects[i] = go.GameObject.init();
-        }
-    }
-
-    fn agi_stop_update(self: *VM, objNo: u8) void {
-        self.gameObjects[objNo].update = false;
-    }
-
-    fn agi_animate_obj(self: *VM, args: *aw.Args) void {
-        const objNo = args.get.a();
-
-        self.gameObjects[objNo] = go.GameObject.init();
-        self.vm_log("agi_animate_obj({d}) invoked", .{objNo});
-    }
-
-    pub fn agi_step_size(self: *VM, args: *aw.Args) void {
-        const objNo = args.get.a();
-        const varNo = args.get.b();
-
-        self.gameObjects[objNo].stepSize = self.read_var(varNo);
-    }
-
-    pub fn agi_step_time(self: *VM, args: *aw.Args) void {
-        const objNo = args.get.a();
-        const varNo = args.get.b();
-
-        self.gameObjects[objNo].stepTime = self.read_var(varNo);
-    }
-
-    pub fn agi_cycle_time(self: *VM, args: *aw.Args) void {
-        const objNo = args.get.a();
-        const varNo = args.get.b();
-
-        self.gameObjects[objNo].cycleTime = self.read_var(varNo);
-        self.vm_log("agi_cycle_time({d}:objNo, {d}:varNo) invoked", .{ objNo, self.read_var(varNo) });
-    }
-
-    pub fn agi_get_posn(self: *VM, args: *aw.Args) void {
-        const objNo = args.get.a();
-        const varNo1 = args.get.b();
-        const varNo2 = args.get.c();
-
-        self.write_var(varNo1, self.gameObjects[objNo].x);
-        self.write_var(varNo2, self.gameObjects[objNo].y);
-        self.vm_log("agi_get_posn({d}:objNo, {d}:varNo1, {d}:varNo2", .{ objNo, varNo1, varNo2 });
-        //self.breakpoint() catch unreachable;
-    }
-
-    pub fn agi_observe_blocks(self: *VM, args: *aw.Args) void {
-        const objNo = args.get.a();
-        self.gameObjects[objNo].ignoreBlocks = false;
-    }
-
-    pub fn agi_observe_objs(self: *VM, args: *aw.Args) void {
-        const objNo = args.get.a();
-        self.gameObjects[objNo].ignoreObjs = false;
-    }
-
-    pub fn agi_ignore_objs(self: *VM, args: *aw.Args) void {
-        const objNo = args.get.a();
-        self.gameObjects[objNo].ignoreObjs = true;
-    }
-
-    pub fn agi_observe_horizon(self: *VM, args: *aw.Args) void {
-        const objNo = args.get.a();
-        self.gameObjects[objNo].ignoreHorizon = false;
-    }
-
-    pub fn agi_lindirectn(self: *VM, args: *aw.Args) void {
-        const varNo = args.get.a();
-        const val = args.get.b();
-
-        self.write_var(self.read_var(varNo), val);
-    }
-
-    pub fn agi_set_view(self: *VM, args: *aw.Args) void {
-        const objNo = args.get.a();
-        const viewNo = args.get.b();
-
-        self.gameObjects[objNo].viewNo = viewNo;
-        self.gameObjects[objNo].loop = 0;
-        self.gameObjects[objNo].cel = 0;
-        self.gameObjects[objNo].celCycling = true;
-    }
-
-    pub fn agi_set_view_v(self: *VM, args: *aw.Args) void {
-        const objNo = args.get.a();
-        const varNo = args.get.b();
-
-        args.set.a(objNo);
-        args.set.b(self.read_var(varNo));
-
-        self.agi_set_view(args.pack());
-    }
-
-    pub fn agi_load_view(self: *VM, args: *aw.Args) anyerror!void {
-        const viewNo = args.get.a();
-        //self.loadedViews[viewNo] = new View(Resources.readAgiResource(Resources.AgiResource.View, viewNo));
-        std.log.debug("agi_load_view({d}) invoked...(sampleTexture => {s})", .{ viewNo, sampleTexture });
-
-        // TODO: since views are extracted as .png in the format of: 39_1_0.png. (view, loop, cell)
-        // I need to load all .png files in the view set: 39_*_*.png and show the relevant one based on the animation loop/cycle.
-        // Since all related files are now separate .png, one strategy is to just iterate with a loop and do a file exists check.
-
-        const maxLoops = 15;
-        const maxCels = 15;
-
-        var loopIndex: usize = 0;
-        var celIndex: usize = 0;
-
-        // Total file exists brute force approach...not the cleanest...but...good enough for now.
-        while (loopIndex < maxLoops) : (loopIndex += 1) {
-            while (celIndex < maxCels) : (celIndex += 1) {
-                var buf: [100]u8 = undefined;
-                const fmtStr = try vm_view_key(&buf, viewNo, @intCast(u8, loopIndex), @intCast(u8, celIndex));
-
-                // Oh! already loaded so just skip over.
-                const texture = self.resMan.ref_texture(rm.WithKey(rm.ResourceTag.Texture, fmtStr));
-                if (texture) |_| {
-                    std.log.debug("texture: {s} was previously loaded so doing nothing!", .{fmtStr});
-                    continue;
-                }
-
-                const cstr = try allocator.dupeZ(u8, fmtStr);
-                defer allocator.free(cstr);
-
-                if (clib.FileExists(cstr)) {
-                    _ = try self.resMan.add_texture(rm.WithKey(rm.ResourceTag.Texture, fmtStr));
-                    self.vm_log("located view file: {s}", .{fmtStr});
-
-                    // Poor mans record of view/loop/cel entries, so we can easily query loop counts or cel counts per view.
-                    self.viewDB[viewNo][@intCast(u8, loopIndex)] += 1;
-                } else {
-                    //self.vm_log("view file NOT found: {s}", .{fmtStr});
-                }
-            }
-            celIndex = 0;
-        }
-    }
-
-    pub fn agi_load_view_v(self: *VM, args: *aw.Args) anyerror!void {
-        const varNo = args.get.a();
-
-        args.set.a(self.read_var(varNo));
-
-        try self.agi_load_view(args.pack());
-    }
-
-    fn vm_reset_viewDB(self: *VM) void {
+    pub fn vm_reset_viewDB(self: *VM) void {
         self.viewDB = std.mem.zeroes([1000][20]u8);
     }
 
-    fn vm_view_loop_count(self: *VM, viewNo: usize) usize {
+    pub fn vm_view_loop_count(self: *VM, viewNo: usize) usize {
         var i: usize = 0;
         var counter: usize = 0;
         while (i < self.viewDB[viewNo].len) : (i += 1) {
@@ -1402,326 +1059,661 @@ pub const VM = struct {
         return counter;
     }
 
-    fn vm_view_loop_cel_count(self: *VM, viewNo: usize, loopNo: usize) usize {
+    pub fn vm_view_loop_cel_count(self: *VM, viewNo: usize, loopNo: usize) usize {
         return self.viewDB[viewNo][loopNo];
     }
-
-    fn agi_block(self: *VM, x1: u8, y1: u8, x2: u8, y2: u8) void {
-        self.blockX1 = x1;
-        self.blockY1 = y1;
-        self.blockX2 = x2;
-        self.blockY2 = y2;
-    }
-
-    fn agi_unblock(self: *VM) void {
-        self.blockX1 = 0;
-        self.blockY1 = 0;
-        self.blockX2 = 0;
-        self.blockY2 = 0;
-    }
-
-    pub fn agi_set_horizon(self: *VM, args: *aw.Args) void {
-        const y = args.get.a();
-        self.horizon = y;
-    }
-
-    pub fn agi_load_sound(self: *VM, args: *aw.Args) void {
-        const soundNo = args.get.a();
-        self.vm_log("agi_load_sound({d}) invoked...", .{soundNo});
-    }
-
-    pub fn agi_sound(self: *VM, args: *aw.Args) void {
-        const soundNo = args.get.a();
-        const flagNo = args.get.b();
-        self.vm_log("agi_sound({d}, {d}) invoked...", .{ soundNo, flagNo });
-    }
-
-    pub fn agi_stop_sound(self: *VM, _: *aw.Args) void {
-        self.vm_log("agi_stop_sound() invoked...", .{});
-    }
-
-    pub fn agi_load_pic(self: *VM, args: *aw.Args) void {
-        const varNo = args.get.a();
-        const picNo = self.read_var(varNo);
-        self.vm_log("agi_load_pic({d}) (picNo:{d})invoked...", .{ varNo, picNo });
-        // this.loadedPics[picNo] = new Pic(Resources.readAgiResource(Resources.AgiResource.Pic, picNo));
-    }
-
-    pub fn agi_draw_pic(self: *VM, args: *aw.Args) void {
-        const varNo = args.get.a();
-        // this.visualBuffer.clear(0x0F);
-        // this.priorityBuffer.clear(0x04);
-        self.agi_overlay_pic(varNo);
-        self.vm_log("agi_draw_pic({d})", .{varNo});
-    }
-
-    pub fn agi_draw(self: *VM, args: *aw.Args) void {
-        const objNo = args.get.a();
-        self.gameObjects[objNo].draw = true;
-    }
-
-    pub fn agi_overlay_pic(self: *VM, varNo: u8) void {
-        const picNo = self.read_var(varNo);
-
-        self.vm_log("agi_overlay_pic({d}) (picNo:{d})invoked...", .{ varNo, picNo });
-        //this.loadedPics[picNo].draw(this.visualBuffer, this.priorityBuffer);
-    }
-
-    pub fn agi_discard_pic(self: *VM, args: *aw.Args) void {
-        const varNo = args.get.a();
-        const picNo = self.read_var(varNo);
-        self.vm_log("agi_discard_pic({d}) (picNo:{d})invoked...", .{ varNo, picNo });
-        //this.loadedPics[picNo] = null;
-    }
-
-    pub fn agi_add_to_pic(self: *VM, args: *aw.Args) void {
-        const viewNo = args.get.a();
-        const loopNo = args.get.b();
-        const celNo = args.get.c();
-        const x = args.get.d();
-        const y = args.get.e();
-        const priority = args.get.f();
-        const margin = args.get.g();
-
-        // TODO: Add margin
-        //this.screen.bltView(viewNo, loopNo, celNo, x, y, priority);
-        self.vm_log("agi_add_to_pic({d},{d},{d},{d},{d},{d},{d})", .{ viewNo, loopNo, celNo, x, y, priority, margin });
-    }
-
-    pub fn agi_add_to_pic_v(self: *VM, args: *aw.Args) void {
-        const varNo1 = args.get.a();
-        const varNo2 = args.get.b();
-        const varNo3 = args.get.c();
-        const varNo4 = args.get.d();
-        const varNo5 = args.get.e();
-        const varNo6 = args.get.f();
-        const varNo7 = args.get.g();
-
-        args.set.a(self.read_var(varNo1));
-        args.set.a(self.read_var(varNo2));
-        args.set.a(self.read_var(varNo3));
-        args.set.a(self.read_var(varNo4));
-        args.set.a(self.read_var(varNo5));
-        args.set.a(self.read_var(varNo6));
-        args.set.a(self.read_var(varNo7));
-
-        self.agi_add_to_pic(args.pack());
-    }
-
-    pub fn agi_show_pic(self: *VM, _: *aw.Args) void {
-        self.vm_log("agi_show_pic()", .{});
-        // this.screen.bltPic();
-        // this.gameObjects.forEach(obj => {
-        //     obj.redraw = true;
-        // });
-    }
-
-    pub fn agi_set_loop(self: *VM, args: *aw.Args) void {
-        const objNo = args.get.a();
-        const loopNo = args.get.b();
-        self.gameObjects[objNo].loop = loopNo;
-    }
-
-    pub fn agi_set_loop_v(self: *VM, args: *aw.Args) void {
-        const objNo = args.get.a();
-        const varNo = args.get.b();
-
-        args.set.a(objNo);
-        args.set.b(self.read_var(varNo));
-
-        self.agi_set_loop(args.pack());
-    }
-
-    pub fn agi_position(self: *VM, args: *aw.Args) void {
-        const objNo = args.get.a();
-        const x = args.get.b();
-        const y = args.get.c();
-
-        self.gameObjects[objNo].x = x;
-        self.gameObjects[objNo].y = y;
-    }
-
-    pub fn agi_position_v(self: *VM, args: *aw.Args) void {
-        const objNo = args.get.a();
-        const varNo1 = args.get.b();
-        const varNo2 = args.get.c();
-
-        args.set.a(objNo);
-        args.set.b(self.read_var(varNo1));
-        args.set.c(self.read_var(varNo2));
-
-        self.agi_position(args.pack());
-    }
-
-    fn agi_set_dir(self: *VM, objNo: u8, varNo: u8) void {
-        self.gameObjects[objNo].direction = self.read_var(varNo);
-    }
-
-    fn agi_get_dir(self: *VM, objNo: u8, varNo: u8) void {
-        self.write_var(varNo, self.gameObjects[objNo].direction);
-    }
-
-    pub fn agi_set_cel(self: *VM, args: *aw.Args) void {
-        const objNo = args.get.a();
-        const celNo = args.get.b();
-
-        self.gameObjects[objNo].nextCycle = 1;
-        self.gameObjects[objNo].cel = celNo;
-    }
-
-    pub fn agi_set_cel_v(self: *VM, args: *aw.Args) void {
-        const objNo = args.get.a();
-        const varNo = args.get.b();
-
-        args.set.a(objNo);
-        args.set.b(self.read_var(varNo));
-
-        self.agi_set_cel(args.pack());
-    }
-
-    pub fn agi_set_priority(self: *VM, args: *aw.Args) void {
-        const objNo = args.get.a();
-        const priority = args.get.b();
-
-        self.gameObjects[objNo].priority = priority;
-        self.gameObjects[objNo].fixedPriority = true;
-    }
-
-    pub fn agi_set_priority_v(self: *VM, args: *aw.Args) void {
-        const objNo = args.get.a();
-        const varNo = args.get.b();
-
-        args.set.a(objNo);
-        args.set.b(self.read_var(varNo));
-
-        self.agi_set_priority(args.pack());
-    }
-
-    pub fn agi_stop_cycling(self: *VM, args: *aw.Args) void {
-        const objNo = args.get.a();
-        self.gameObjects[objNo].celCycling = false;
-        self.vm_log("stop_cycling({d}:objNo)...", .{objNo});
-    }
-
-    pub fn agi_start_cycling(self: *VM, args: *aw.Args) void {
-        const objNo = args.get.a();
-        self.gameObjects[objNo].celCycling = true;
-        self.vm_log("start_cycling({d}:objNo)...", .{objNo});
-    }
-
-    pub fn agi_normal_cycle(self: *VM, args: *aw.Args) void {
-        const objNo = args.get.a();
-        self.gameObjects[objNo].reverseCycle = false;
-    }
-
-    pub fn agi_normal_motion(self: *VM, args: *aw.Args) void {
-        const objNo = args.get.a();
-        self.gameObjects[objNo].motion = true;
-    }
-
-    pub fn agi_currentview(self: *VM, args: *aw.Args) void {
-        const objNo = args.get.a();
-        const varNo = args.get.b();
-        self.write_var(varNo, self.gameObjects[objNo].viewNo);
-    }
-
-    fn agi_player_control(self: *VM, _: *aw.Args) void {
-        self.programControl = false;
-
-        // NOTE: Edge case in scummvm logic only when under playerControl called.
-        // https://github.com/scummvm/scummvm/blob/90f2ff2532ca71033b4393b9ce604c9b0e6cafa0/engines/agi/op_cmd.cpp#L1612
-    }
-
-    fn agi_program_control(self: *VM, _: *aw.Args) void {
-        self.programControl = true;
-        self.vm_log("agi_programControl({s}", .{true});
-    }
-
-    fn agi_move_obj(self: *VM, args: *aw.Args) void {
-        const objNo = args.get.a();
-        const x = args.get.b();
-        const y = args.get.c();
-        const stepSpeed = args.get.d();
-        const flagNo = args.get.e();
-
-        self.gameObjects[objNo].moveToX = x;
-        self.gameObjects[objNo].moveToY = y;
-        self.gameObjects[objNo].moveToStep = stepSpeed;
-        self.gameObjects[objNo].movementFlag = go.MovementFlags.MoveTo;
-        self.gameObjects[objNo].flagToSetWhenFinished = flagNo;
-    }
-
-    fn agi_display(self: *VM, args: *aw.Args) void {
-        const row = args.get.a();
-        const col = args.get.b();
-        const msg = args.get.c();
-        self.vm_log("agi_display({d}:row, {d}:col, {d}:msg) invoked...", .{ row, col, msg });
-        //this.screen.bltText(row, col, this.loadedLogics[this.logicNo].logic.messages[msg]);
-    }
-
-    fn agi_display_v(self: *VM, args: *aw.Args) void {
-        const varNo1 = args.get.a();
-        const varNo2 = args.get.b();
-        const varNo3 = args.get.c();
-
-        args.set.a(self.read_var(varNo1));
-        args.set.b(self.read_var(varNo2));
-        args.set.c(self.read_var(varNo3));
-
-        self.agi_display(args.pack());
-    }
-
-    fn agi_fix_loop(self: *VM, args: *aw.Args) void {
-        const objNo = args.get.a();
-        self.gameObjects[objNo].fixedLoop = true;
-    }
-
-    fn agi_release_loop(self: *VM, args: *aw.Args) void {
-        const objNo = args.get.a();
-        self.gameObjects[objNo].fixedLoop = false;
-    }
-
-    fn agi_erase(self: *VM, args: *aw.Args) void {
-        const objNo = args.get.a();
-
-        var obj = &self.gameObjects[objNo];
-        obj.draw = false;
-        obj.loop = 0;
-        obj.cel = 0;
-        //this.screen.clearView(obj.oldView, obj.oldLoop, obj.oldCel, obj.oldDrawX, obj.oldDrawY, obj.oldPriority);
-    }
-
-    fn agi_reposition_to(self: *VM, args: *aw.Args) void {
-        // NOTE: for this call just forward the args as-is.
-        //var obj: GameObject = this.gameObjects[objNo]; (this line is uneeded but in the agi.js implementation)
-        self.agi_position(args);
-    }
-
-    fn agi_reposition_to_v(self: *VM, args: *aw.Args) void {
-        const objNo = args.get.a();
-        const varNo1 = args.get.b();
-        const varNo2 = args.get.c();
-
-        args.set.a(objNo);
-        args.set.b(self.read_var(varNo1));
-        args.set.c(self.read_var(varNo2));
-        self.agi_reposition_to(args.pack());
-    }
-
-    fn agi_follow_ego(self: *VM, objNo: u8, stepSpeed: u8, flagNo: u8) void {
-        var obj = &self.gameObjects[objNo];
-        obj.moveToStep = stepSpeed;
-        obj.flagToSetWhenFinished = flagNo;
-        obj.movementFlag = go.MovementFlags.ChaseEgo;
-    }
-
-    fn agi_wander(self: *VM, objNo: u8) void {
-        self.gameObjects[objNo].movementFlag = go.MovementFlags.Wander;
-        self.gameObjects[objNo].direction = 5; // TODO: this.randomBetween(1, 9);
-
-        if (objNo == 0) {
-            self.write_var(6, self.gameObjects[objNo].direction);
-            self.agi_program_control();
-        }
-    }
 };
+
+// AGI Statement invocations.
+//     pub fn agi_new_room(self: *VM, args: *aw.Args) void {
+//         const roomNo = args.get.a();
+//         self.newroom = roomNo;
+//         self.vm_log("NEW_ROOM {d}", .{roomNo});
+//     }
+
+//     pub fn agi_new_room_v(self: *VM, varNo: usize) void {
+//         agi_new_room(self.read_var(varNo));
+//     }
+
+//     pub fn agi_assignn(self: *VM, args: *aw.Args) void {
+//         const varNo = args.get.a();
+//         const num = args.get.b();
+
+//         self.write_var(varNo, num);
+//         self.vm_log("agi_assignn({d}:varNo, {d}:num);", .{ varNo, num });
+//     }
+
+//     pub fn agi_assignv(self: *VM, args: *aw.Args) void {
+//         const varNo1 = args.get.a();
+//         const varNo2 = args.get.b();
+
+//         args.set.a(varNo1);
+//         args.set.b(self.read_var(varNo2));
+
+//         self.agi_assignn(args.pack());
+//         self.vm_log("agi_assignv({d}:varNo, {d}:num);", .{ varNo1, varNo2 });
+//     }
+
+//     pub fn agi_call(self: *VM, args: *aw.Args) !void {
+//         const logicNo = args.get.a();
+//         self.vm_log("api_call({d})...", .{logicNo});
+
+//         self.vm_push_logic_stack(self.activeLogicNo);
+//         self.activeLogicNo = logicNo;
+
+//         // PSEUDO: if (LOGIC_ALREADY_LOADED):
+//         // INTERPRET IT.
+//         // else:
+//         // LOAD IT.
+//         // INTERPRET IT.
+//         // UNLOADED IT.
+
+//         // TEMP hack: for now just load it on demand.
+//         const dirIndex = self.logicIndex[logicNo];
+//         if (dirIndex.offset == 0) {
+//             self.vm_log("a NON-EXISTENT logic script was requested: {d}", .{logicNo});
+//             std.os.exit(9);
+//         }
+//         self.vm_log("vm_exec_logic @ logicNo:{d}, vol:{d}, offset:{d}", .{ logicNo, dirIndex.vol, dirIndex.offset });
+//         try self.vm_exec_logic(logicNo, dirIndex.vol, dirIndex.offset);
+
+//         //if (this.loadedLogics[logicNo] != null) {
+//         //    this.loadedLogics[logicNo].parseLogic();
+//         //} else {
+//         //    this.agi_load_logic(logicNo);
+//         //    this.loadedLogics[logicNo].parseLogic();
+//         //    this.loadedLogics[logicNo] = null;
+//         //}
+
+//         self.activeLogicNo = self.vm_pop_logic_stack();
+//     }
+
+//     pub fn agi_call_v(self: *VM, args: *aw.Args) !void {
+//         const varNo = args.get.a();
+
+//         args.set.a(self.read_var(varNo));
+
+//         try self.agi_call(args.pack());
+//     }
+
+//     pub fn agi_quit(self: *VM, args: *aw.Args) void {
+//         const statusCode = args.get.a();
+//         self.vm_log("agi_quit({d}) exited..", .{statusCode});
+//         std.os.exit(statusCode);
+//     }
+
+//     pub fn agi_load_logic(self: *VM, logNo: usize) void {
+//         self.vm_log("agi_load_logic({s}, {d}", .{ self, logNo });
+//         //self.loadedLogics[logNo] = new LogicParser(this, logNo);
+//     }
+
+//     pub fn agi_load_logic_v(self: *VM, varNo: u8) void {
+//         self.agi_load_logic(self.read_var(varNo));
+//     }
+
+//     pub fn agi_increment(self: *VM, args: *aw.Args) void {
+//         const varNo = args.get.a();
+
+//         if (self.read_var(varNo) < 255) {
+//             self.mut_var(varNo, "+=", 1);
+//         }
+//         self.vm_log("increment({d}:varNo) invoked to val: {d}", .{ varNo, self.read_var(varNo) });
+//     }
+
+//     pub fn agi_decrement(self: *VM, args: *aw.Args) void {
+//         const varNo = args.get.a();
+
+//         if (self.read_var(varNo) > 0) {
+//             self.mut_var(varNo, "-=", 1);
+//         }
+//     }
+
+//     pub fn agi_set(self: *VM, args: *aw.Args) void {
+//         const flagNo = args.get.a();
+//         self.set_flag(flagNo, true);
+//         self.vm_log("agi_set(flagNo:{d});", .{flagNo});
+//     }
+
+//     pub fn agi_setv(self: *VM, varNo: u8) void {
+//         self.agi_set(self.read_var(varNo));
+//         self.vm_log("agi_set(varNo:{d});", .{varNo});
+//     }
+
+//     pub fn agi_reset(self: *VM, args: *aw.Args) void {
+//         const flagNo = args.get.a();
+//         self.set_flag(flagNo, false);
+//     }
+
+//     pub fn agi_reset_v(self: *VM, args: *aw.Args) void {
+//         const varNo = args.get.a();
+
+//         args.set.a(self.read_var(varNo));
+//         self.agi_reset(args.pack());
+//     }
+
+//     pub fn agi_addn(self: *VM, varNo: usize, num: u8) void {
+//         // may overflow...might need to do a wrapping %
+//         self.mut_var(varNo, "+=", num);
+//     }
+
+//     pub fn agi_addv(self: *VM, varNo1: usize, varNo2: usize) void {
+//         agi_addn(varNo1, self.read_var(varNo2));
+//     }
+
+//     pub fn agi_subn(self: *VM, varNo: usize, num: u8) void {
+//         self.mut_var(varNo, "-=", num);
+//     }
+
+//     pub fn agi_subv(self: *VM, varNo1: usize, varNo2: usize) void {
+//         agi_subn(varNo1, self.read_var(varNo2));
+//     }
+
+//     pub fn agi_muln(self: *VM, varNo: usize, val: u8) void {
+//         self.mut_var(self.read_var(varNo), "*=", val);
+//     }
+
+//     pub fn agi_mulv(self: *VM, varNo1: usize, varNo2: usize) void {
+//         agi_muln(varNo1, self.read_var(varNo2));
+//     }
+
+//     pub fn agi_divn(self: *VM, varNo: usize, val: u8) void {
+//         self.mut_var(self.read_var(varNo), "/=", val);
+//     }
+
+//     pub fn agi_divv(self: *VM, varNo1: usize, varNo2: usize) void {
+//         agi_divn(varNo1, self.read_var(varNo2));
+//     }
+
+//     pub fn agi_force_update(self: *VM, args: *aw.Args) void {
+//         const objNum = args.get.a();
+//         self.gameObjects[objNum].update = true;
+//         // this.agi_draw(objNo);
+//     }
+
+//     pub fn agi_clear_lines(self: *VM, args: *aw.Args) void {
+//         // for (var y = fromRow; y < row + 1; y++) {
+//         //         this.screen.bltText(y, 0, "                                        ");
+//         //     }
+//         self.vm_log("agi_clear_lines({d},{d},{d})", .{ args.get.a(), args.get.b(), args.get.c() });
+//     }
+
+//     pub fn agi_prevent_input(self: *VM, _: *aw.Args) void {
+//         self.allowInput = false;
+//     }
+
+//     pub fn agi_accept_input(self: *VM, _: *aw.Args) void {
+//         self.allowInput = true;
+//     }
+
+//     pub fn agi_unanimate_all(self: *VM) void {
+//         var i: usize = 0;
+//         while (i < TOTAL_GAME_OBJS) : (i += 1) {
+//             self.gameObjects[i] = go.GameObject.init();
+//         }
+//     }
+
+//     fn agi_stop_update(self: *VM, objNo: u8) void {
+//         self.gameObjects[objNo].update = false;
+//     }
+
+//     fn agi_animate_obj(self: *VM, args: *aw.Args) void {
+//         const objNo = args.get.a();
+
+//         self.gameObjects[objNo] = go.GameObject.init();
+//         self.vm_log("agi_animate_obj({d}) invoked", .{objNo});
+//     }
+
+//     pub fn agi_step_size(self: *VM, args: *aw.Args) void {
+//         const objNo = args.get.a();
+//         const varNo = args.get.b();
+
+//         self.gameObjects[objNo].stepSize = self.read_var(varNo);
+//     }
+
+//     pub fn agi_step_time(self: *VM, args: *aw.Args) void {
+//         const objNo = args.get.a();
+//         const varNo = args.get.b();
+
+//         self.gameObjects[objNo].stepTime = self.read_var(varNo);
+//     }
+
+//     pub fn agi_cycle_time(self: *VM, args: *aw.Args) void {
+//         const objNo = args.get.a();
+//         const varNo = args.get.b();
+
+//         self.gameObjects[objNo].cycleTime = self.read_var(varNo);
+//         self.vm_log("agi_cycle_time({d}:objNo, {d}:varNo) invoked", .{ objNo, self.read_var(varNo) });
+//     }
+
+//     pub fn agi_get_posn(self: *VM, args: *aw.Args) void {
+//         const objNo = args.get.a();
+//         const varNo1 = args.get.b();
+//         const varNo2 = args.get.c();
+
+//         self.write_var(varNo1, self.gameObjects[objNo].x);
+//         self.write_var(varNo2, self.gameObjects[objNo].y);
+//         self.vm_log("agi_get_posn({d}:objNo, {d}:varNo1, {d}:varNo2", .{ objNo, varNo1, varNo2 });
+//         //self.breakpoint() catch unreachable;
+//     }
+
+//     pub fn agi_observe_blocks(self: *VM, args: *aw.Args) void {
+//         const objNo = args.get.a();
+//         self.gameObjects[objNo].ignoreBlocks = false;
+//     }
+
+//     pub fn agi_observe_objs(self: *VM, args: *aw.Args) void {
+//         const objNo = args.get.a();
+//         self.gameObjects[objNo].ignoreObjs = false;
+//     }
+
+//     pub fn agi_ignore_objs(self: *VM, args: *aw.Args) void {
+//         const objNo = args.get.a();
+//         self.gameObjects[objNo].ignoreObjs = true;
+//     }
+
+//     pub fn agi_observe_horizon(self: *VM, args: *aw.Args) void {
+//         const objNo = args.get.a();
+//         self.gameObjects[objNo].ignoreHorizon = false;
+//     }
+
+//     pub fn agi_lindirectn(self: *VM, args: *aw.Args) void {
+//         const varNo = args.get.a();
+//         const val = args.get.b();
+
+//         self.write_var(self.read_var(varNo), val);
+//     }
+
+//     pub fn agi_set_view(self: *VM, args: *aw.Args) void {
+//         const objNo = args.get.a();
+//         const viewNo = args.get.b();
+
+//         self.gameObjects[objNo].viewNo = viewNo;
+//         self.gameObjects[objNo].loop = 0;
+//         self.gameObjects[objNo].cel = 0;
+//         self.gameObjects[objNo].celCycling = true;
+//     }
+
+//     pub fn agi_set_view_v(self: *VM, args: *aw.Args) void {
+//         const objNo = args.get.a();
+//         const varNo = args.get.b();
+
+//         args.set.a(objNo);
+//         args.set.b(self.read_var(varNo));
+
+//         self.agi_set_view(args.pack());
+//     }
+
+//     pub fn agi_load_view(self: *VM, args: *aw.Args) anyerror!void {
+//         const viewNo = args.get.a();
+//         //self.loadedViews[viewNo] = new View(Resources.readAgiResource(Resources.AgiResource.View, viewNo));
+//         std.log.debug("agi_load_view({d}) invoked...(sampleTexture => {s})", .{ viewNo, sampleTexture });
+
+//         // TODO: since views are extracted as .png in the format of: 39_1_0.png. (view, loop, cell)
+//         // I need to load all .png files in the view set: 39_*_*.png and show the relevant one based on the animation loop/cycle.
+//         // Since all related files are now separate .png, one strategy is to just iterate with a loop and do a file exists check.
+
+//         const maxLoops = 15;
+//         const maxCels = 15;
+
+//         var loopIndex: usize = 0;
+//         var celIndex: usize = 0;
+
+//         // Total file exists brute force approach...not the cleanest...but...good enough for now.
+//         while (loopIndex < maxLoops) : (loopIndex += 1) {
+//             while (celIndex < maxCels) : (celIndex += 1) {
+//                 var buf: [100]u8 = undefined;
+//                 const fmtStr = try vm_view_key(&buf, viewNo, @intCast(u8, loopIndex), @intCast(u8, celIndex));
+
+//                 // Oh! already loaded so just skip over.
+//                 const texture = self.resMan.ref_texture(rm.WithKey(rm.ResourceTag.Texture, fmtStr));
+//                 if (texture) |_| {
+//                     std.log.debug("texture: {s} was previously loaded so doing nothing!", .{fmtStr});
+//                     continue;
+//                 }
+
+//                 const cstr = try allocator.dupeZ(u8, fmtStr);
+//                 defer allocator.free(cstr);
+
+//                 if (clib.FileExists(cstr)) {
+//                     _ = try self.resMan.add_texture(rm.WithKey(rm.ResourceTag.Texture, fmtStr));
+//                     self.vm_log("located view file: {s}", .{fmtStr});
+
+//                     // Poor mans record of view/loop/cel entries, so we can easily query loop counts or cel counts per view.
+//                     self.viewDB[viewNo][@intCast(u8, loopIndex)] += 1;
+//                 } else {
+//                     //self.vm_log("view file NOT found: {s}", .{fmtStr});
+//                 }
+//             }
+//             celIndex = 0;
+//         }
+//     }
+
+//     pub fn agi_load_view_v(self: *VM, args: *aw.Args) anyerror!void {
+//         const varNo = args.get.a();
+
+//         args.set.a(self.read_var(varNo));
+
+//         try self.agi_load_view(args.pack());
+//     }
+
+//     fn agi_block(self: *VM, x1: u8, y1: u8, x2: u8, y2: u8) void {
+//         self.blockX1 = x1;
+//         self.blockY1 = y1;
+//         self.blockX2 = x2;
+//         self.blockY2 = y2;
+//     }
+
+//     fn agi_unblock(self: *VM) void {
+//         self.blockX1 = 0;
+//         self.blockY1 = 0;
+//         self.blockX2 = 0;
+//         self.blockY2 = 0;
+//     }
+
+//     pub fn agi_set_horizon(self: *VM, args: *aw.Args) void {
+//         const y = args.get.a();
+//         self.horizon = y;
+//     }
+
+//     pub fn agi_load_sound(self: *VM, args: *aw.Args) void {
+//         const soundNo = args.get.a();
+//         self.vm_log("agi_load_sound({d}) invoked...", .{soundNo});
+//     }
+
+//     pub fn agi_sound(self: *VM, args: *aw.Args) void {
+//         const soundNo = args.get.a();
+//         const flagNo = args.get.b();
+//         self.vm_log("agi_sound({d}, {d}) invoked...", .{ soundNo, flagNo });
+//     }
+
+//     pub fn agi_stop_sound(self: *VM, _: *aw.Args) void {
+//         self.vm_log("agi_stop_sound() invoked...", .{});
+//     }
+
+//     pub fn agi_load_pic(self: *VM, args: *aw.Args) void {
+//         const varNo = args.get.a();
+//         const picNo = self.read_var(varNo);
+//         self.vm_log("agi_load_pic({d}) (picNo:{d})invoked...", .{ varNo, picNo });
+//         // this.loadedPics[picNo] = new Pic(Resources.readAgiResource(Resources.AgiResource.Pic, picNo));
+//     }
+
+//     pub fn agi_draw_pic(self: *VM, args: *aw.Args) void {
+//         const varNo = args.get.a();
+//         // this.visualBuffer.clear(0x0F);
+//         // this.priorityBuffer.clear(0x04);
+//         self.agi_overlay_pic(varNo);
+//         self.vm_log("agi_draw_pic({d})", .{varNo});
+//     }
+
+//     pub fn agi_draw(self: *VM, args: *aw.Args) void {
+//         const objNo = args.get.a();
+//         self.gameObjects[objNo].draw = true;
+//     }
+
+//     pub fn agi_overlay_pic(self: *VM, varNo: u8) void {
+//         const picNo = self.read_var(varNo);
+
+//         self.vm_log("agi_overlay_pic({d}) (picNo:{d})invoked...", .{ varNo, picNo });
+//         //this.loadedPics[picNo].draw(this.visualBuffer, this.priorityBuffer);
+//     }
+
+//     pub fn agi_discard_pic(self: *VM, args: *aw.Args) void {
+//         const varNo = args.get.a();
+//         const picNo = self.read_var(varNo);
+//         self.vm_log("agi_discard_pic({d}) (picNo:{d})invoked...", .{ varNo, picNo });
+//         //this.loadedPics[picNo] = null;
+//     }
+
+//     pub fn agi_add_to_pic(self: *VM, args: *aw.Args) void {
+//         const viewNo = args.get.a();
+//         const loopNo = args.get.b();
+//         const celNo = args.get.c();
+//         const x = args.get.d();
+//         const y = args.get.e();
+//         const priority = args.get.f();
+//         const margin = args.get.g();
+
+//         // TODO: Add margin
+//         //this.screen.bltView(viewNo, loopNo, celNo, x, y, priority);
+//         self.vm_log("agi_add_to_pic({d},{d},{d},{d},{d},{d},{d})", .{ viewNo, loopNo, celNo, x, y, priority, margin });
+//     }
+
+//     pub fn agi_add_to_pic_v(self: *VM, args: *aw.Args) void {
+//         const varNo1 = args.get.a();
+//         const varNo2 = args.get.b();
+//         const varNo3 = args.get.c();
+//         const varNo4 = args.get.d();
+//         const varNo5 = args.get.e();
+//         const varNo6 = args.get.f();
+//         const varNo7 = args.get.g();
+
+//         args.set.a(self.read_var(varNo1));
+//         args.set.a(self.read_var(varNo2));
+//         args.set.a(self.read_var(varNo3));
+//         args.set.a(self.read_var(varNo4));
+//         args.set.a(self.read_var(varNo5));
+//         args.set.a(self.read_var(varNo6));
+//         args.set.a(self.read_var(varNo7));
+
+//         self.agi_add_to_pic(args.pack());
+//     }
+
+//     pub fn agi_show_pic(self: *VM, _: *aw.Args) void {
+//         self.vm_log("agi_show_pic()", .{});
+//         // this.screen.bltPic();
+//         // this.gameObjects.forEach(obj => {
+//         //     obj.redraw = true;
+//         // });
+//     }
+
+//     pub fn agi_set_loop(self: *VM, args: *aw.Args) void {
+//         const objNo = args.get.a();
+//         const loopNo = args.get.b();
+//         self.gameObjects[objNo].loop = loopNo;
+//     }
+
+//     pub fn agi_set_loop_v(self: *VM, args: *aw.Args) void {
+//         const objNo = args.get.a();
+//         const varNo = args.get.b();
+
+//         args.set.a(objNo);
+//         args.set.b(self.read_var(varNo));
+
+//         self.agi_set_loop(args.pack());
+//     }
+
+//     pub fn agi_position(self: *VM, args: *aw.Args) void {
+//         const objNo = args.get.a();
+//         const x = args.get.b();
+//         const y = args.get.c();
+
+//         self.gameObjects[objNo].x = x;
+//         self.gameObjects[objNo].y = y;
+//     }
+
+//     pub fn agi_position_v(self: *VM, args: *aw.Args) void {
+//         const objNo = args.get.a();
+//         const varNo1 = args.get.b();
+//         const varNo2 = args.get.c();
+
+//         args.set.a(objNo);
+//         args.set.b(self.read_var(varNo1));
+//         args.set.c(self.read_var(varNo2));
+
+//         self.agi_position(args.pack());
+//     }
+
+//     fn agi_set_dir(self: *VM, objNo: u8, varNo: u8) void {
+//         self.gameObjects[objNo].direction = self.read_var(varNo);
+//     }
+
+//     fn agi_get_dir(self: *VM, objNo: u8, varNo: u8) void {
+//         self.write_var(varNo, self.gameObjects[objNo].direction);
+//     }
+
+//     pub fn agi_set_cel(self: *VM, args: *aw.Args) void {
+//         const objNo = args.get.a();
+//         const celNo = args.get.b();
+
+//         self.gameObjects[objNo].nextCycle = 1;
+//         self.gameObjects[objNo].cel = celNo;
+//     }
+
+//     pub fn agi_set_cel_v(self: *VM, args: *aw.Args) void {
+//         const objNo = args.get.a();
+//         const varNo = args.get.b();
+
+//         args.set.a(objNo);
+//         args.set.b(self.read_var(varNo));
+
+//         self.agi_set_cel(args.pack());
+//     }
+
+//     pub fn agi_set_priority(self: *VM, args: *aw.Args) void {
+//         const objNo = args.get.a();
+//         const priority = args.get.b();
+
+//         self.gameObjects[objNo].priority = priority;
+//         self.gameObjects[objNo].fixedPriority = true;
+//     }
+
+//     pub fn agi_set_priority_v(self: *VM, args: *aw.Args) void {
+//         const objNo = args.get.a();
+//         const varNo = args.get.b();
+
+//         args.set.a(objNo);
+//         args.set.b(self.read_var(varNo));
+
+//         self.agi_set_priority(args.pack());
+//     }
+
+//     pub fn agi_stop_cycling(self: *VM, args: *aw.Args) void {
+//         const objNo = args.get.a();
+//         self.gameObjects[objNo].celCycling = false;
+//         self.vm_log("stop_cycling({d}:objNo)...", .{objNo});
+//     }
+
+//     pub fn agi_start_cycling(self: *VM, args: *aw.Args) void {
+//         const objNo = args.get.a();
+//         self.gameObjects[objNo].celCycling = true;
+//         self.vm_log("start_cycling({d}:objNo)...", .{objNo});
+//     }
+
+//     pub fn agi_normal_cycle(self: *VM, args: *aw.Args) void {
+//         const objNo = args.get.a();
+//         self.gameObjects[objNo].reverseCycle = false;
+//     }
+
+//     pub fn agi_normal_motion(self: *VM, args: *aw.Args) void {
+//         const objNo = args.get.a();
+//         self.gameObjects[objNo].motion = true;
+//     }
+
+//     pub fn agi_currentview(self: *VM, args: *aw.Args) void {
+//         const objNo = args.get.a();
+//         const varNo = args.get.b();
+//         self.write_var(varNo, self.gameObjects[objNo].viewNo);
+//     }
+
+//     fn agi_player_control(self: *VM, _: *aw.Args) void {
+//         self.programControl = false;
+
+//         // NOTE: Edge case in scummvm logic only when under playerControl called.
+//         // https://github.com/scummvm/scummvm/blob/90f2ff2532ca71033b4393b9ce604c9b0e6cafa0/engines/agi/op_cmd.cpp#L1612
+//     }
+
+//     fn agi_program_control(self: *VM, _: *aw.Args) void {
+//         self.programControl = true;
+//         self.vm_log("agi_programControl({s}", .{true});
+//     }
+
+//     fn agi_move_obj(self: *VM, args: *aw.Args) void {
+//         const objNo = args.get.a();
+//         const x = args.get.b();
+//         const y = args.get.c();
+//         const stepSpeed = args.get.d();
+//         const flagNo = args.get.e();
+
+//         var obj = &self.gameObjects[objNo];
+
+//         obj.moveToX = x;
+//         obj.moveToY = y;
+//         obj.moveToStep = stepSpeed;
+//         obj.movementFlag = go.MovementFlags.MoveTo;
+//         obj.flagToSetWhenFinished = flagNo;
+//     }
+
+//     fn agi_display(self: *VM, args: *aw.Args) void {
+//         const row = args.get.a();
+//         const col = args.get.b();
+//         const msg = args.get.c();
+//         self.vm_log("agi_display({d}:row, {d}:col, {d}:msg) invoked...", .{ row, col, msg });
+//         //this.screen.bltText(row, col, this.loadedLogics[this.logicNo].logic.messages[msg]);
+//     }
+
+//     fn agi_display_v(self: *VM, args: *aw.Args) void {
+//         const varNo1 = args.get.a();
+//         const varNo2 = args.get.b();
+//         const varNo3 = args.get.c();
+
+//         args.set.a(self.read_var(varNo1));
+//         args.set.b(self.read_var(varNo2));
+//         args.set.c(self.read_var(varNo3));
+
+//         self.agi_display(args.pack());
+//     }
+
+//     fn agi_fix_loop(self: *VM, args: *aw.Args) void {
+//         const objNo = args.get.a();
+//         self.gameObjects[objNo].fixedLoop = true;
+//     }
+
+//     fn agi_release_loop(self: *VM, args: *aw.Args) void {
+//         const objNo = args.get.a();
+//         self.gameObjects[objNo].fixedLoop = false;
+//     }
+
+//     fn agi_erase(self: *VM, args: *aw.Args) void {
+//         const objNo = args.get.a();
+
+//         var obj = &self.gameObjects[objNo];
+//         obj.draw = false;
+//         obj.loop = 0;
+//         obj.cel = 0;
+//         //this.screen.clearView(obj.oldView, obj.oldLoop, obj.oldCel, obj.oldDrawX, obj.oldDrawY, obj.oldPriority);
+//     }
+
+//     fn agi_reposition_to(self: *VM, args: *aw.Args) void {
+//         // NOTE: for this call just forward the args as-is.
+//         //var obj: GameObject = this.gameObjects[objNo]; (this line is uneeded but in the agi.js implementation)
+//         self.agi_position(args);
+//     }
+
+//     fn agi_reposition_to_v(self: *VM, args: *aw.Args) void {
+//         const objNo = args.get.a();
+//         const varNo1 = args.get.b();
+//         const varNo2 = args.get.c();
+
+//         args.set.a(objNo);
+//         args.set.b(self.read_var(varNo1));
+//         args.set.c(self.read_var(varNo2));
+//         self.agi_reposition_to(args.pack());
+//     }
+
+//     fn agi_follow_ego(self: *VM, objNo: u8, stepSpeed: u8, flagNo: u8) void {
+//         var obj = &self.gameObjects[objNo];
+//         obj.moveToStep = stepSpeed;
+//         obj.flagToSetWhenFinished = flagNo;
+//         obj.movementFlag = go.MovementFlags.ChaseEgo;
+//     }
+
+//     fn agi_wander(self: *VM, objNo: u8) void {
+//         self.gameObjects[objNo].movementFlag = go.MovementFlags.Wander;
+//         self.gameObjects[objNo].direction = 5; // TODO: this.randomBetween(1, 9);
+
+//         if (objNo == 0) {
+//             self.write_var(6, self.gameObjects[objNo].direction);
+//             self.agi_program_control();
+//         }
+//     }
+// };

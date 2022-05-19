@@ -18,9 +18,6 @@ const pathAudio = "/Users/deckarep/Desktop/ralph-agi/test-agi-game/ripped_music/
 const kIntro = rm.WithKey(rm.ResourceTag.MusicStream, pathAudio ++ "Larry - Intro.mp3");
 const playAudio = false;
 
-const pathTextures = "/Users/deckarep/Desktop/ralph-agi/test-agi-game/extracted/view/";
-const sampleTexture = pathTextures ++ "43_0_0.png";
-
 // NOTES:
 
 // VM Runtime
@@ -60,14 +57,13 @@ const sampleTexture = pathTextures ++ "43_0_0.png";
 var vmInstance = agi_vm.VM.init(false);
 
 // Adapted from: https://github.com/r1sc/agi.js/blob/master/Interpreter.ts
-// TODO: all array indices should be usize.
 
 pub fn main() anyerror!void {
     defer arena.deinit();
 
     c.SetConfigFlags(c.FLAG_VSYNC_HINT);
     // Remember: these dimensions are the ExtractAGI upscaled size!!!
-    c.InitWindow(1280 + 300, 672, "AGI Interpreter - @deckarep");
+    c.InitWindow(1280 + 245, 672, "AGI Interpreter - @deckarep");
     c.InitAudioDevice();
     c.SetTargetFPS(60);
     defer c.CloseWindow();
@@ -77,28 +73,12 @@ pub fn main() anyerror!void {
 
     // Load music streams...
     _ = try resMan.add_musicstream(kIntro);
-    // Hide mouse cursor.
-    //c.HideCursor();
-    //defer c.ShowCursor();
 
     // Seed the VM with data it needs.
     try vmInstance.vm_bootstrap();
 
-    // Background texture.
-    const bg = c.LoadTexture("test-agi-game/extracted/pic/11_pic.png");
-    defer c.UnloadTexture(bg);
-
-    // Character.
-    const larry = c.LoadTexture("test-agi-game/extracted/view/0_1_2.png");
-    defer c.UnloadTexture(larry);
-
     try vmInstance.vm_start();
     defer vmInstance.deinit();
-
-    // var target = c.LoadRenderTexture(1280, 672);
-    // c.BeginTextureMode(target);
-    // c.ClearBackground(hlp.col(255, 255, 255, 0));
-    // c.EndTextureMode();
 
     while (!c.WindowShouldClose()) {
         // Update section.
@@ -111,64 +91,46 @@ pub fn main() anyerror!void {
             resMan.updateMusicStream(kIntro);
         }
 
-        // Draw section.
-        //drawwRaylib(&bg, &larry);
-        // RENDER AT SPEED GOVERNED BY RAYLIB
-        // c.BeginTextureMode(target);
-        // // Do drawing stuff here
-        // const value = c.GetRandomValue(0, 5);
-        // if (c.IsMouseButtonDown(c.MOUSE_BUTTON_LEFT)) {
-        //     //c.DrawPixel(value, value, c.RED);
-        //     c.DrawPixel(c.GetMouseX(), c.GetMouseY(), c.Fade(c.RED, 0.2));
-        //     c.DrawPixel(c.GetMouseX() + value, c.GetMouseY() + value, c.Fade(c.GREEN, 0.2));
-        //     c.DrawPixel(c.GetMouseX() - value, c.GetMouseY() + value, c.Fade(c.BLUE, 0.2));
-        //     c.DrawPixel(c.GetMouseX() + value, c.GetMouseY() - value, c.Fade(c.RED, 0.2));
-        //     c.DrawPixel(c.GetMouseX() - value, c.GetMouseY() - value, c.Fade(c.YELLOW, 0.2));
-        // }
-
-        // c.EndTextureMode();
-
         c.BeginDrawing();
+        defer c.EndDrawing();
         c.ClearBackground(c.BLACK);
 
         try vmInstance.vm_cycle();
-
-        const symbol = c.TextFormat("%s: %03i => %03i", "vars", @as(c_int, 6), vmInstance.read_var(6));
-        c.DrawText(symbol, 60, 60, 25, c.GREEN);
-
-        //std.log.info("frame: {d}", .{c.GetFrameTime()});
-
-        //const flags = [_]bool{ true, false, true, false, true, false, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, true, true, false, false, true, false };
-        debugDrawVars(&vmInstance.vars);
-        debugDrawFlags(&vmInstance.flags);
-
-        const varSet = [_]monVar{
-            .{ .name = "egoDir", .idx = 6 },
-            .{ .name = "elapsedSeconds", .idx = 11 },
-            .{ .name = "elapsedMin", .idx = 12 },
-            .{ .name = "elapsedHrs", .idx = 13 },
-            .{ .name = "elapsedDays", .idx = 14 },
-            .{ .name = "egoX", .idx = 38 },
-            .{ .name = "oldEgoX", .idx = 40 },
-            .{ .name = "egoY", .idx = 39 },
-            .{ .name = "oldEgoY", .idx = 41 },
-            .{ .name = "oldEgoDir", .idx = 42 },
-            .{ .name = "passInRoom", .idx = 62 },
-            .{ .name = "script", .idx = 65 },
-            .{ .name = "scriptCycles", .idx = 66 },
-            .{ .name = "scriptTimer", .idx = 67 },
-            .{ .name = "gameSeconds", .idx = 115 },
-        };
-        try moniterVarSet(varSet[0..]);
-
-        const flagSet = [_]monFlag{
-            .{ .name = "scriptDone", .idx = 75 },
-        };
-        try moniterFlagSet(flagSet[0..]);
-        c.EndDrawing();
+        renderDebugInfo();
 
         std.time.sleep(100 * std.time.ns_per_ms);
     }
+}
+
+fn renderDebugInfo() void {
+    debugDrawVars(&vmInstance.vars);
+    debugDrawFlags(&vmInstance.flags);
+
+    const varSet = [_]monVar{
+        .{ .name = "egoDir", .idx = 6 },
+        .{ .name = "elapsedSeconds", .idx = 11 },
+        .{ .name = "elapsedMin", .idx = 12 },
+        .{ .name = "elapsedHrs", .idx = 13 },
+        .{ .name = "elapsedDays", .idx = 14 },
+        .{ .name = "egoX", .idx = 38 },
+        .{ .name = "oldEgoX", .idx = 40 },
+        .{ .name = "egoY", .idx = 39 },
+        .{ .name = "oldEgoY", .idx = 41 },
+        .{ .name = "oldEgoDir", .idx = 42 },
+        .{ .name = "passInRoom", .idx = 62 },
+        .{ .name = "script", .idx = 65 },
+        .{ .name = "scriptCycles", .idx = 66 },
+        .{ .name = "scriptTimer", .idx = 67 },
+        .{ .name = "gameSeconds", .idx = 115 },
+    };
+
+    try moniterVarSet(varSet[0..]);
+
+    const flagSet = [_]monFlag{
+        .{ .name = "scriptDone", .idx = 75 },
+    };
+
+    try moniterFlagSet(flagSet[0..]);
 }
 
 const monVar = struct {
@@ -177,19 +139,19 @@ const monVar = struct {
 };
 
 fn moniterVarSet(vars: []const monVar) !void {
-    const xOffset = 1200;
+    const xOffset = 1280 + 10;
     const yOffset = 10;
     const size = 15;
 
     var i: usize = 0;
     for (vars) |v| {
         // Need to pass a null-terminated proper c-string.
-        //const cstr = try allocator.dupeZ(u8, v.name);
-        //defer allocator.free(cstr);
+        // const cstr = try allocator.dupeZ(u8, v.name);
+        // defer allocator.free(cstr);
 
         // NOTE: need to pass pointer child-type hence the .ptr or else get C ABI Zig bug.  :shrug:
         const symbol = c.TextFormat("%s: %03i => %03i", v.name.ptr, v.idx, vmInstance.read_var(v.idx));
-        c.DrawText(symbol, xOffset, yOffset + (@intCast(c_int, i) * 16), size, c.GREEN);
+        c.DrawText(symbol, xOffset, yOffset + (@intCast(c_int, i) * 16), size, c.RED);
         i += 1;
     }
 }
@@ -200,7 +162,7 @@ const monFlag = struct {
 };
 
 fn moniterFlagSet(flags: []const monFlag) !void {
-    const xOffset = 1200;
+    const xOffset = 1280 + 10;
     const yOffset = 300;
     const size = 15;
 
@@ -212,7 +174,7 @@ fn moniterFlagSet(flags: []const monFlag) !void {
 
         // NOTE: need to pass pointer child-type hence the .ptr or else get C ABI Zig bug.  :shrug:
         const symbol = c.TextFormat("%s: %03i => %s", f.name.ptr, f.idx, if (vmInstance.get_flag(f.idx)) "T" else "F");
-        c.DrawText(symbol, xOffset, yOffset + (@intCast(c_int, i) * 18), size, c.WHITE);
+        c.DrawText(symbol, xOffset, yOffset + (@intCast(c_int, i) * 18), size, c.RED);
         i += 1;
     }
 }
@@ -220,8 +182,8 @@ fn moniterFlagSet(flags: []const monFlag) !void {
 // for now this works like a HEAT-MAP of the var values in each var register....at some point I need to actually render each cell u8 value.
 // alternatively: when hovering with the mouse, show a tooltip like: var[x] = 12;
 fn debugDrawVars(vars: []u8) void {
-    const xOrigin = 1360 + 4;
-    const yOrigin = 100;
+    const xOrigin = 1280 + 10;
+    const yOrigin = 350;
     const padding = 4;
     const width = 8;
 
@@ -231,7 +193,6 @@ fn debugDrawVars(vars: []u8) void {
     const falseColor = c.GRAY;
     const noDataColor = hlp.col(128, 128, 128, 80);
 
-    //std.log.info("*******", .{});
     var col: usize = 0;
     while (col < cols) : (col += 1) {
         var row: usize = 0;
@@ -253,8 +214,8 @@ fn debugDrawVars(vars: []u8) void {
 }
 
 fn debugDrawFlags(flags: []bool) void {
-    const xOrigin = 1360 + 4;
-    const yOrigin = 500;
+    const xOrigin = 1280 + 10;
+    const yOrigin = 530;
     const padding = 4;
     const width = 8;
 

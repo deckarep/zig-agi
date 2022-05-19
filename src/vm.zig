@@ -96,7 +96,6 @@ pub const VM = struct {
     resMan: rm.ResourceManager,
     viewDB: [1000][20]u8, // backing array to field below.
 
-    //activePic: u8, // background image.
     picTex: clib.RenderTexture2D,
     show_background: bool,
 
@@ -724,6 +723,7 @@ pub const VM = struct {
 
                             var predicateCallResult = false;
                             const predicateFunc = cmds.agi_predicates[opCodeNR - 1];
+                            errdefer std.log.warn("predicate ERRORED: \"{s}\"", .{predicateFunc.name});
 
                             self.vm_log("agi test (op:{X:0>2}): {s}(args => {d}) here...", .{ opCodeNR - 1, predicateFunc.name, predicateFunc.arity });
 
@@ -760,7 +760,7 @@ pub const VM = struct {
                         var buf: [10]u8 = undefined;
                         var myArgs = &aw.Args.init(&buf);
 
-                        errdefer std.log.warn("statement UNIMPLEMENTED: \"{s}\"", .{statementFunc.name});
+                        errdefer std.log.warn("statement ERRORED: \"{s}\"", .{statementFunc.name});
                         try statementFunc.func(self, try myArgs.eat(&volPartFbs, @intCast(usize, statementFunc.arity)));
 
                         // Finally, special handling for new.room opcode.

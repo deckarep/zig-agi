@@ -4,6 +4,7 @@ const vm = @import("vm.zig");
 const aw = @import("args.zig");
 const go = @import("game_object.zig");
 const rm = @import("resource_manager.zig");
+const hlp = @import("raylib_helpers.zig");
 
 const clib = @import("c_defs.zig").c;
 
@@ -436,20 +437,32 @@ pub fn agi_load_pic(self: *vm.VM, args: *aw.Args) anyerror!void {
     const varNo = args.get.a();
     const picNo = self.read_var(varNo);
     self.vm_log("agi_load_pic({d}) (picNo:{d})invoked...", .{ varNo, picNo });
+
+    var buf: [100]u8 = undefined;
+    const fmtStr = try vm.VM.vm_pic_key(&buf, picNo);
+
+    // Oh! already loaded so just skip over.
+    const texture = self.resMan.ref_texture(rm.WithKey(rm.ResourceTag.Texture, fmtStr));
+    if (texture) |_| {
+        std.log.debug("texture: {s} was previously loaded so doing nothing!", .{fmtStr});
+        return;
+    }
+
+    _ = try self.resMan.add_texture(rm.WithKey(rm.ResourceTag.Texture, fmtStr));
+
     // this.loadedPics[picNo] = new Pic(Resources.readAgiResource(Resources.AgiResource.Pic, picNo));
 }
 
 pub fn agi_draw_pic(self: *vm.VM, args: *aw.Args) anyerror!void {
     const varNo = args.get.a();
+
+    clib.BeginTextureMode(self.picTex);
+    defer clib.EndTextureMode();
+    clib.ClearBackground(hlp.col(0, 0, 0, 255));
     // this.visualBuffer.clear(0x0F);
     // this.priorityBuffer.clear(0x04);
     try agi_overlay_pic(self, varNo);
     self.vm_log("agi_draw_pic({d})", .{varNo});
-}
-
-pub fn agi_draw(self: *vm.VM, args: *aw.Args) anyerror!void {
-    const objNo = args.get.a();
-    self.gameObjects[objNo].draw = true;
 }
 
 pub fn agi_overlay_pic(self: *vm.VM, varNo: u8) anyerror!void {
@@ -457,6 +470,7 @@ pub fn agi_overlay_pic(self: *vm.VM, varNo: u8) anyerror!void {
 
     self.vm_log("agi_overlay_pic({d}) (picNo:{d})invoked...", .{ varNo, picNo });
     //this.loadedPics[picNo].draw(this.visualBuffer, this.priorityBuffer);
+    try self.vm_draw_pic(picNo);
 }
 
 pub fn agi_discard_pic(self: *vm.VM, args: *aw.Args) anyerror!void {
@@ -473,7 +487,12 @@ pub fn agi_add_to_pic(self: *vm.VM, args: *aw.Args) anyerror!void {
     const x = args.get.d();
     const y = args.get.e();
     const priority = args.get.f();
-    const margin = args.get.g();
+    const margin = args.get.g(); // Original source calls this "box priority".
+
+    try self.vm_draw_pic_at(viewNo, loopNo, celNo, x, y, priority, margin);
+    // clib.BeginTextureMode(self.picTex);
+    // defer clib.EndTextureMode();
+    // clib.DrawTexturePro(txt, hlp.rect(0, 0, @intToFloat(f32, txt.width), @intToFloat(f32, txt.height)), hlp.rect(0, 0, @intToFloat(f32, txt.width), @intToFloat(f32, txt.height)), hlp.vec2(0, 0), 0, clib.WHITE);
 
     // TODO: Add margin
     //this.screen.bltView(viewNo, loopNo, celNo, x, y, priority);
@@ -490,22 +509,29 @@ pub fn agi_add_to_pic_v(self: *vm.VM, args: *aw.Args) anyerror!void {
     const varNo7 = args.get.g();
 
     args.set.a(self.read_var(varNo1));
-    args.set.a(self.read_var(varNo2));
-    args.set.a(self.read_var(varNo3));
-    args.set.a(self.read_var(varNo4));
-    args.set.a(self.read_var(varNo5));
-    args.set.a(self.read_var(varNo6));
-    args.set.a(self.read_var(varNo7));
+    args.set.b(self.read_var(varNo2));
+    args.set.c(self.read_var(varNo3));
+    args.set.d(self.read_var(varNo4));
+    args.set.e(self.read_var(varNo5));
+    args.set.f(self.read_var(varNo6));
+    args.set.g(self.read_var(varNo7));
 
     try agi_add_to_pic(self, args.pack());
 }
 
 pub fn agi_show_pic(self: *vm.VM, _: *aw.Args) anyerror!void {
+    // TODO: find a spot to set this back to false when a room change occurs probably.
+    self.show_background = true;
     self.vm_log("agi_show_pic()", .{});
     // this.screen.bltPic();
     // this.gameObjects.forEach(obj => {
     //     obj.redraw = true;
     // });
+}
+
+pub fn agi_draw(self: *vm.VM, args: *aw.Args) anyerror!void {
+    const objNo = args.get.a();
+    self.gameObjects[objNo].draw = true;
 }
 
 pub fn agi_set_loop(self: *vm.VM, args: *aw.Args) anyerror!void {

@@ -56,13 +56,14 @@ pub fn agi_test_have_key(self: *vm.VM, _: *aw.Args) anyerror!bool {
 // Therefore, this is the *ONLY* function where it's handled in a hacky way
 // Fuck you, it's called pragmatism and you should try it sometime
 // Fuck you again, yes I'm missing punctuation to end my sentences
-pub fn agi_test_said(_: *vm.VM, args: *aw.Args) anyerror!bool { //args: []const u16) bool {
+pub fn agi_test_said(self: *vm.VM, args: *aw.Args) anyerror!bool { //args: []const u16) bool {
     // consume the args in lil endian as 16-bit integers instead of single-byte integers.
-    var arguments: [30]u16 = undefined;
 
     var fb = std.io.fixedBufferStream(args.buf);
-    var i: usize = 0;
     const argCount = args.arity / 2;
+
+    var arguments: [30]u16 = undefined;
+    var i: usize = 0;
     while (i < argCount) : (i += 1) {
         arguments[i] = try fb.reader().readInt(u16, std.builtin.Endian.Little);
     }
@@ -70,6 +71,6 @@ pub fn agi_test_said(_: *vm.VM, args: *aw.Args) anyerror!bool { //args: []const 
     // Slice the args, since we are only reading up to a limit.
     const actualArgs = arguments[0..argCount];
 
-    std.log.warn("agi_test_said({any}) invoked...", .{actualArgs});
+    self.vm_log("agi_test_said({any}) invoked...", .{actualArgs});
     return false;
 }

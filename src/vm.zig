@@ -17,6 +17,7 @@ const rm = @import("resource_manager.zig");
 const aw = @import("args.zig");
 
 const pathTextures = "/Users/deckarep/Desktop/ralph-agi/test-agi-game/extracted/view/";
+const pathPics = "/Users/deckarep/Desktop/ralph-agi/test-agi-game/extracted/pic/";
 pub const sampleTexture = pathTextures ++ "43_0_0.png";
 
 // HACK zone, just doing a quick and dirty comptime embed file.
@@ -95,6 +96,10 @@ pub const VM = struct {
     resMan: rm.ResourceManager,
     viewDB: [1000][20]u8, // backing array to field below.
 
+    //activePic: u8, // background image.
+    picTex: clib.RenderTexture2D,
+    show_background: bool,
+
     newroom: u8,
     horizon: u8,
     allowInput: bool,
@@ -121,7 +126,7 @@ pub const VM = struct {
 
     // init creates a new instance of an AGI VM.
     pub fn init(debugState: bool) VM {
-        var myVM = VM{ .debug = debugState, .resMan = undefined, .viewDB = std.mem.zeroes([1000][20]u8), .vmTimer = undefined, .logicIndex = undefined, .picIndex = undefined, .viewIndex = undefined, .logicStack = std.mem.zeroes([LOGIC_STACK_SIZE]u8), .logicStackPtr = 0, .activeLogicNo = 0, .blockX1 = 0, .blockX2 = 0, .blockY1 = 0, .blockY2 = 0, .newroom = 0, .horizon = 0, .allowInput = false, .haveKey = false, .programControl = false, .vars = std.mem.zeroes([TOTAL_VARS]u8), .flags = std.mem.zeroes([TOTAL_FLAGS]bool), .gameObjects = std.mem.zeroes([TOTAL_GAME_OBJS]go.GameObject) };
+        var myVM = VM{ .show_background = false, .picTex = undefined, .debug = debugState, .resMan = undefined, .viewDB = std.mem.zeroes([1000][20]u8), .vmTimer = undefined, .logicIndex = undefined, .picIndex = undefined, .viewIndex = undefined, .logicStack = std.mem.zeroes([LOGIC_STACK_SIZE]u8), .logicStackPtr = 0, .activeLogicNo = 0, .blockX1 = 0, .blockX2 = 0, .blockY1 = 0, .blockY2 = 0, .newroom = 0, .horizon = 0, .allowInput = false, .haveKey = false, .programControl = false, .vars = std.mem.zeroes([TOTAL_VARS]u8), .flags = std.mem.zeroes([TOTAL_FLAGS]bool), .gameObjects = std.mem.zeroes([TOTAL_GAME_OBJS]go.GameObject) };
         return myVM;
     }
 
@@ -135,6 +140,9 @@ pub const VM = struct {
     }
 
     pub fn vm_start(self: *VM) !void {
+        // Initialize our picTex
+        self.picTex = clib.LoadRenderTexture(1280, 672);
+
         // TODO: perhaps dependency inject the timer into the vmInstance before calling start.
         // TODO: tune the Timer such that it's roughly accurate
         // TODO: upon doing VM VAR reads where the timers redirect to the respective VM_Timer (sec, min, hrs, days) methods.
@@ -212,6 +220,8 @@ pub const VM = struct {
             self.set_flag(6, false);
             self.set_flag(12, false);
 
+            self.vm_draw_background();
+
             var i: usize = 0;
             while (i < self.gameObjects.len) : (i += 1) {
                 var obj = &self.gameObjects[(self.gameObjects.len - 1) - i];
@@ -219,6 +229,8 @@ pub const VM = struct {
                     if (i == 0) {
                         obj.direction = @intToEnum(go.Direction, egoDir);
                     }
+
+                    // TODO: updates should not also be drawing...so we need to draw the background + scene objects as a last step probably.
                     try self.vm_updateObject(i, obj);
                 }
             }
@@ -472,6 +484,50 @@ pub const VM = struct {
         }
     }
 
+    pub fn vm_pic_key(buffer: []u8, picNo: u8) ![]u8 {
+        var fmtStr = try std.fmt.bufPrint(buffer[0..], "{s}{d}_pic.png", .{ pathPics, picNo });
+        return fmtStr;
+    }
+
+    // vm_draw_pic draws a primary static background pic to the picTex render texture.
+    pub fn vm_draw_pic(self: *VM, picNo: u8) anyerror!void {
+        var buf: [100]u8 = undefined;
+        const fmtStr = try vm_pic_key(&buf, picNo);
+        const texture = self.resMan.ref_texture(rm.WithKey(rm.ResourceTag.Texture, fmtStr));
+
+        if (texture) |txt| {
+            self.vm_log("FOUND picNo:{d} => {s}", .{ picNo, fmtStr });
+            clib.BeginTextureMode(self.picTex);
+            defer clib.EndTextureMode();
+            clib.DrawTexturePro(txt, hlp.rect(0, 0, @intToFloat(f32, txt.width), @intToFloat(f32, txt.height)), hlp.rect(0, 0, @intToFloat(f32, txt.width), @intToFloat(f32, txt.height)), hlp.vec2(0, 0), 0, clib.WHITE);
+        } else {
+            std.log.warn("NOT FOUND picNo:{d} => {s}", .{ picNo, fmtStr });
+            std.os.exit(39);
+        }
+    }
+
+    // vm_draw_pic_at draws an ADDED static view to the background buffer (picTex).
+    pub fn vm_draw_pic_at(self: *VM, viewNo: u8, loopNo: u8, celNo: u8, x: u8, y: u8, priority: u8, margin: u8) anyerror!void {
+        var buf: [100]u8 = undefined;
+        const fmtStr = try vm_view_key(&buf, viewNo, loopNo, celNo);
+        const texture = self.resMan.ref_texture(rm.WithKey(rm.ResourceTag.Texture, fmtStr));
+
+        if (texture) |txt| {
+            self.vm_log("FOUND viewNo:{d}, {d}:priority, {d}:margin => {s}", .{ viewNo, priority, margin, fmtStr });
+            clib.BeginTextureMode(self.picTex);
+            defer clib.EndTextureMode();
+            clib.DrawTexturePro(txt, hlp.rect(0, 0, @intToFloat(f32, txt.width), @intToFloat(f32, txt.height)), hlp.rect(@intToFloat(f32, x), @intToFloat(f32, y), @intToFloat(f32, txt.width), @intToFloat(f32, txt.height)), hlp.vec2(0, 0), 0, clib.WHITE);
+        } else {
+            std.log.warn("NOT FOUND viewNo:{d}, {d}:priority, {d}:margin=> {s}", .{ viewNo, priority, margin, fmtStr });
+            std.os.exit(39);
+        }
+    }
+
+    // vm_draw_background blits the entire pic+static views (added to pic) to the screen.
+    pub fn vm_draw_background(self: *VM) void {
+        clib.DrawTextureRec(self.picTex.texture, hlp.rect(0, 0, @intToFloat(f32, self.picTex.texture.width), @intToFloat(f32, -self.picTex.texture.height)), hlp.vec2(0, 0), clib.WHITE);
+    }
+
     fn vm_cel_width(self: *VM, viewNo: u8, loop: u8, cel: u8) !c_int {
         var buf: [100]u8 = undefined;
         const fmtStr = try vm_view_key(&buf, viewNo, loop, cel);
@@ -660,10 +716,11 @@ pub const VM = struct {
                             var buf: [30]u8 = undefined;
                             var myArgs = &aw.Args.init(&buf);
 
-                            if (opCodeNR == 0x0E) { //Said (uses variable num of 16-bit args, within bytecode!)
+                            if (std.mem.eql(u8, predicateFunc.name, "said")) {
+                                // First fetch number of args this op uses.
                                 const saidArgLen = try volPartFbs.reader().readByte();
 
-                                // Times 2 because said requires 16-bit args so we need to consume double the amount.
+                                // Multiply by 2 because "said" requires 16-bit args so we need to consume double the amount.
                                 const actualArgLen = saidArgLen * 2;
                                 predicateCallResult = try predicateFunc.func(self, try myArgs.eat(&volPartFbs, @intCast(usize, actualArgLen)));
                             } else {
@@ -671,8 +728,8 @@ pub const VM = struct {
                             }
 
                             if (invertMode) {
-                                predicateCallResult = !predicateCallResult;
                                 invertMode = false;
+                                predicateCallResult = !predicateCallResult;
                             }
 
                             if (orMode) {

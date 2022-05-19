@@ -14,8 +14,8 @@ const clib = @import("c_defs.zig").c;
 // 2. All functions return anyerror!void even if they can't possibly return an error in order to have a uniform function pointer syntax. Implication is they must all have "try" syntax.
 // 3. All functions take a *aw.Args object (backed by a slice) for getting/setting arguments dynamically
 // 4. For functions that don't utilize arguments, they still take an *aw.Args object for uniformity.
-// 5. Functions that should consume their respective args but be skipped are assigned: agi_nop
-// 6. Functions that are yet to be implemented are assigned as default: agi_unimplemented
+// 5. Functions that should consume their respective args but be skipped are assigned: agi_nop and will not halt the interpreter.
+// 6. Functions that are yet to be implemented are assigned as default: agi_unimplemented and will halt the interpreter.
 
 // AGI Statement invocations.
 

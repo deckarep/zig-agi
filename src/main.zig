@@ -98,7 +98,8 @@ pub fn main() anyerror!void {
         try vmInstance.vm_cycle();
         renderDebugInfo();
 
-        std.time.sleep(100 * std.time.ns_per_ms);
+        // TODO: factor in the var[10] which is the speed setting.
+        std.time.sleep(70 * std.time.ns_per_ms);
     }
 }
 

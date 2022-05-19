@@ -49,7 +49,7 @@ const DirectoryIndex = struct {
 const vm_width = 1280;
 const vm_height = 672;
 
-//pub var visualBuffer = clib.GenImageColor(vm_width, vm_height, hlp.col(255, 255, 255, 255));
+// pub var visualBuffer = clib.GenImageColor(vm_width, vm_height, hlp.col(255, 255, 255, 255));
 // pub var priorityBuffer = clib.GenImageColor(vm_width, vm_height, hlp.col(255, 255, 255, 255));
 // pub var framePriorityData = clib.GenImageColor(vm_width, vm_height, hlp.col(255, 255, 255, 255));
 // pub var frameData = clib.GenImageColor(vm_width, vm_height, hlp.col(255, 255, 255, 255));
@@ -85,11 +85,6 @@ fn buildDirIndex(dirFile: []const u8) ![DIR_INDEX_SIZE]DirectoryIndex {
     // Return a copy of the loaded index array.
     return index;
 }
-
-// const viewRecord = struct {
-//     loopNo: u8,
-//     celCount: u8,
-// };
 
 pub const VM = struct {
     debug: bool,
@@ -143,7 +138,7 @@ pub const VM = struct {
         self.picTex = clib.LoadRenderTexture(1280, 672);
 
         // TODO: perhaps dependency inject the timer into the vmInstance before calling start.
-        // TODO: tune the Timer such that it's roughly accurate
+        // TODO: tune the Timer such that it's roughly accurate 1/20hz
         // TODO: upon doing VM VAR reads where the timers redirect to the respective VM_Timer (sec, min, hrs, days) methods.
         self.vmTimer = try timer.VM_Timer.init();
         try self.vmTimer.start();
@@ -168,6 +163,7 @@ pub const VM = struct {
     }
 
     pub fn deinit(self: *VM) void {
+        clib.UnloadRenderTexture(self.picTex);
         defer arena.deinit();
         defer self.resMan.deinit();
         defer self.vmTimer.deinit();
@@ -456,8 +452,7 @@ pub const VM = struct {
             }
 
             // NOTE: this code is getting there.
-            // 1. need to draw the correct sizing/x,y placement for higher resolution assets (factor of 4 times bigger)
-            // 2. still need to handle mirror states somehow.
+            // 1. still need to handle mirror states somehow.
 
             //std.log.info("larry => \n egoDir => {d}, movementFlag => {s}, dir => {s}", .{ self.read_var(6), obj.movementFlag, obj.direction });
             try self.vm_draw_view(obj.viewNo, obj.loop, obj.cel, @intToFloat(f32, obj.x), @intToFloat(f32, obj.y));
@@ -881,10 +876,6 @@ pub const VM = struct {
     pub fn set_flag(self: *VM, flagNo: usize, state: bool) void {
         self.flags[flagNo] = state;
     }
-
-    // TODO: we should gate all reads and writes to better control vm state.
-    // TODO: write_var
-    //fn write_var(self: *VM, varNo: usize) void {}
 
     pub fn vm_reset_viewDB(self: *VM) void {
         self.viewDB = std.mem.zeroes([1000][20]u8);

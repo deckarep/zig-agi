@@ -477,7 +477,14 @@ pub const VM = struct {
 
         if (texture) |txt| {
             self.vm_log("FOUND view:{d}, loop:{d}, cel:{d} => {s}", .{ viewNo, loop, cel, fmtStr });
-            clib.DrawTexturePro(txt, hlp.rect(0, 0, @intToFloat(f32, txt.width), @intToFloat(f32, txt.height)), hlp.rect(x, y, @intToFloat(f32, txt.width), @intToFloat(f32, txt.height)), hlp.vec2(0, 0), 0, clib.WHITE);
+
+            // Scaling comes from the fact that these assets were upscaled by a factor of 4 with an additional *2 for the x-axis.
+            // Additionally, the assets y-origin should is their bottom, so we substract the view height for the y-axis.
+            // https://github.com/barryharmsen/ExtractAGI/blob/master/export_view.py
+            const scaledX = x * 2 * 4;
+            const scaledY = (y * 4) - @intToFloat(f32, txt.height);
+
+            clib.DrawTexturePro(txt, hlp.rect(0, 0, @intToFloat(f32, txt.width), @intToFloat(f32, txt.height)), hlp.rect(scaledX, scaledY, @intToFloat(f32, txt.width), @intToFloat(f32, txt.height)), hlp.vec2(0, 0), 0, clib.WHITE);
         } else {
             std.log.warn("NOT FOUND view:{d}, loop:{d}, cel:{d} => {s}", .{ viewNo, loop, cel, fmtStr });
             std.os.exit(39);
@@ -506,8 +513,8 @@ pub const VM = struct {
         }
     }
 
-    // vm_draw_pic_at draws an ADDED static view to the background buffer (picTex).
-    pub fn vm_draw_pic_at(self: *VM, viewNo: u8, loopNo: u8, celNo: u8, x: u8, y: u8, priority: u8, margin: u8) anyerror!void {
+    // vm_add_view_to_pic_at draws an ADDED static view to the background buffer (picTex).
+    pub fn vm_add_view_to_pic_at(self: *VM, viewNo: u8, loopNo: u8, celNo: u8, x: u8, y: u8, priority: u8, margin: u8) anyerror!void {
         var buf: [100]u8 = undefined;
         const fmtStr = try vm_view_key(&buf, viewNo, loopNo, celNo);
         const texture = self.resMan.ref_texture(rm.WithKey(rm.ResourceTag.Texture, fmtStr));
@@ -516,7 +523,15 @@ pub const VM = struct {
             self.vm_log("FOUND viewNo:{d}, {d}:priority, {d}:margin => {s}", .{ viewNo, priority, margin, fmtStr });
             clib.BeginTextureMode(self.picTex);
             defer clib.EndTextureMode();
-            clib.DrawTexturePro(txt, hlp.rect(0, 0, @intToFloat(f32, txt.width), @intToFloat(f32, txt.height)), hlp.rect(@intToFloat(f32, x), @intToFloat(f32, y), @intToFloat(f32, txt.width), @intToFloat(f32, txt.height)), hlp.vec2(0, 0), 0, clib.WHITE);
+
+            // Scaling comes from the fact that these assets were upscaled by a factor of 4 with an additional *2 for the x-axis.
+            // Additionally, the assets y-origin should is their bottom, so we substract the view height for the y-axis.
+            // https://github.com/barryharmsen/ExtractAGI/blob/master/export_view.py
+            const scaledX = @intToFloat(f32, @intCast(u16, x) * 2 * 4);
+            const scaledY = @intToFloat(f32, @intCast(u16, y) * 4) - @intToFloat(f32, txt.height);
+
+            clib.DrawTexturePro(txt, hlp.rect(0, 0, @intToFloat(f32, txt.width), @intToFloat(f32, txt.height)), hlp.rect(scaledX, scaledY, @intToFloat(f32, txt.width), @intToFloat(f32, txt.height)), hlp.vec2(0, 0), 0, clib.WHITE);
+            clib.DrawRectangleLines(@floatToInt(c_int, scaledX), @floatToInt(c_int, scaledY), txt.width, txt.height, clib.RED);
         } else {
             std.log.warn("NOT FOUND viewNo:{d}, {d}:priority, {d}:margin=> {s}", .{ viewNo, priority, margin, fmtStr });
             std.os.exit(39);

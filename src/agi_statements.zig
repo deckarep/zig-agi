@@ -489,7 +489,7 @@ pub fn agi_add_to_pic(self: *vm.VM, args: *aw.Args) anyerror!void {
     const priority = args.get.f();
     const margin = args.get.g(); // Original source calls this "box priority".
 
-    try self.vm_draw_pic_at(viewNo, loopNo, celNo, x, y, priority, margin);
+    try self.vm_add_view_to_pic_at(viewNo, loopNo, celNo, x, y, priority, margin);
     // clib.BeginTextureMode(self.picTex);
     // defer clib.EndTextureMode();
     // clib.DrawTexturePro(txt, hlp.rect(0, 0, @intToFloat(f32, txt.width), @intToFloat(f32, txt.height)), hlp.rect(0, 0, @intToFloat(f32, txt.width), @intToFloat(f32, txt.height)), hlp.vec2(0, 0), 0, clib.WHITE);

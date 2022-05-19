@@ -398,25 +398,6 @@ pub fn agi_load_view_v(self: *vm.VM, args: *aw.Args) anyerror!void {
     try agi_load_view(self, args.pack());
 }
 
-// fn vm_reset_viewDB(self: *vm.VM) anyerror!void {
-//     self.viewDB = std.mem.zeroes([1000][20]u8);
-// }
-
-// fn vm_view_loop_count(self: *vm.VM, viewNo: usize) usize {
-//     var i: usize = 0;
-//     var counter: usize = 0;
-//     while (i < self.viewDB[viewNo].len) : (i += 1) {
-//         if (self.viewDB[viewNo][i] > 0) {
-//             counter += 1;
-//         }
-//     }
-//     return counter;
-// }
-
-// fn vm_view_loop_cel_count(self: *vm.VM, viewNo: usize, loopNo: usize) usize {
-//     return self.viewDB[viewNo][loopNo];
-// }
-
 pub fn agi_block(self: *vm.VM, x1: u8, y1: u8, x2: u8, y2: u8) anyerror!void {
     self.blockX1 = x1;
     self.blockY1 = y1;

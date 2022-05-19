@@ -1,11 +1,7 @@
+const predicates = @import("agi_predicates.zig");
 const statements = @import("agi_statements.zig");
 const vm = @import("vm.zig");
 const aw = @import("args.zig");
-
-pub const agi_test_tuple = struct {
-    name: []const u8,
-    arity: i8,
-};
 
 // /**
 //  * AGI variables. (VM dedicated Vars Pulled from ScummVM)
@@ -68,30 +64,37 @@ pub const VM_VARS = enum(usize) {
 // 	VM_FLAG_AUTO_RESTART //16
 // };
 
-// Test/Statement commands also cross-referenced with:
+// Predicate/Statement commands also cross-referenced with:
 // * https://github.com/r1sc/agi.js/blob/master/Interpreter.ts
 // * https://github.com/sonneveld/nagi/blob/master/src/logic/cmd_table.c (more complete reference it would seem)
 
-pub const agi_tests = [_]agi_test_tuple{
-    agi_test_tuple{ .name = "equaln", .arity = 2 },
-    agi_test_tuple{ .name = "equalv", .arity = 2 },
-    agi_test_tuple{ .name = "lessn", .arity = 2 },
-    agi_test_tuple{ .name = "lessv", .arity = 2 },
-    agi_test_tuple{ .name = "greatern", .arity = 2 },
-    agi_test_tuple{ .name = "greaterv", .arity = 2 },
-    agi_test_tuple{ .name = "isset", .arity = 1 },
-    agi_test_tuple{ .name = "issetv", .arity = 1 },
-    agi_test_tuple{ .name = "has", .arity = 1 },
-    agi_test_tuple{ .name = "obj_in_room", .arity = 2 },
-    agi_test_tuple{ .name = "posn", .arity = 5 },
-    agi_test_tuple{ .name = "controller", .arity = 1 },
-    agi_test_tuple{ .name = "have_key", .arity = 0 },
-    agi_test_tuple{ .name = "said", .arity = -1 }, // NOTE: this is dynamic args.
-    agi_test_tuple{ .name = "compare_strings", .arity = 2 },
-    agi_test_tuple{ .name = "obj_in_box", .arity = 5 },
-    agi_test_tuple{ .name = "center_posn", .arity = 5 },
-    agi_test_tuple{ .name = "right_posn", .arity = 5 },
-    agi_test_tuple{ .name = "unknown.19", .arity = 5 },
+pub const agi_predicate_tuple = struct {
+    name: []const u8,
+    func: fn (self: *vm.VM, args: *aw.Args) anyerror!bool,
+    arity: i8,
+    bitSize: usize,
+};
+
+pub const agi_predicates = [_]agi_predicate_tuple{
+    agi_predicate_tuple{ .name = "equaln", .func = predicates.agi_test_equaln, .arity = 2, .bitSize = 8 },
+    agi_predicate_tuple{ .name = "equalv", .func = predicates.agi_test_equalv, .arity = 2, .bitSize = 8 },
+    agi_predicate_tuple{ .name = "lessn", .func = predicates.agi_nop, .arity = 2, .bitSize = 8 },
+    agi_predicate_tuple{ .name = "lessv", .func = predicates.agi_nop, .arity = 2, .bitSize = 8 },
+    agi_predicate_tuple{ .name = "greatern", .func = predicates.agi_test_greatern, .arity = 2, .bitSize = 8 },
+    agi_predicate_tuple{ .name = "greaterv", .func = predicates.agi_nop, .arity = 2, .bitSize = 8 },
+    agi_predicate_tuple{ .name = "isset", .func = predicates.agi_test_isset, .arity = 1, .bitSize = 8 },
+    agi_predicate_tuple{ .name = "issetv", .func = predicates.agi_nop, .arity = 1, .bitSize = 8 },
+    agi_predicate_tuple{ .name = "has", .func = predicates.agi_nop, .arity = 1, .bitSize = 8 },
+    agi_predicate_tuple{ .name = "obj_in_room", .func = predicates.agi_nop, .arity = 2, .bitSize = 8 },
+    agi_predicate_tuple{ .name = "posn", .func = predicates.agi_nop, .arity = 5, .bitSize = 8 },
+    agi_predicate_tuple{ .name = "controller", .func = predicates.agi_test_controller, .arity = 1, .bitSize = 8 },
+    agi_predicate_tuple{ .name = "have_key", .func = predicates.agi_test_have_key, .arity = 0, .bitSize = 8 },
+    agi_predicate_tuple{ .name = "said", .func = predicates.agi_test_said, .arity = -1, .bitSize = 16 }, // NOTE: this is dynamic args.
+    agi_predicate_tuple{ .name = "compare_strings", .func = predicates.agi_nop, .arity = 2, .bitSize = 8 },
+    agi_predicate_tuple{ .name = "obj_in_box", .func = predicates.agi_nop, .arity = 5, .bitSize = 8 },
+    agi_predicate_tuple{ .name = "center_posn", .func = predicates.agi_nop, .arity = 5, .bitSize = 8 },
+    agi_predicate_tuple{ .name = "right_posn", .func = predicates.agi_nop, .arity = 5, .bitSize = 8 },
+    agi_predicate_tuple{ .name = "unknown.19", .func = predicates.agi_nop, .arity = 5, .bitSize = 8 },
 };
 
 pub const agi_statement_tuple = struct {

@@ -1,34 +1,21 @@
 const std = @import("std");
-const ArrayList = std.ArrayList;
-
-var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-pub const allocator = arena.allocator();
-
 const prompt = @import("prompt.zig");
 const go = @import("game_object.zig");
 const cmds = @import("agi_cmds.zig");
 const stmts = @import("agi_statements.zig");
 const hlp = @import("raylib_helpers.zig");
-
 const clib = @import("c_defs.zig").c;
 const timer = @import("sys_timers.zig");
 const rm = @import("resource_manager.zig");
-
 const aw = @import("args.zig");
+
+const ArrayList = std.ArrayList;
+var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+pub const allocator = arena.allocator();
 
 const pathTextures = "/Users/deckarep/Desktop/ralph-agi/test-agi-game/extracted/view/";
 const pathPics = "/Users/deckarep/Desktop/ralph-agi/test-agi-game/extracted/pic/";
 pub const sampleTexture = pathTextures ++ "43_0_0.png";
-
-// HACK zone, just doing a quick and dirty comptime embed file.
-const rootPath = "/Users/deckarep/Desktop/ralph-agi/test-agi-game/";
-const logDirFile = @embedFile(rootPath ++ "LOGDIR");
-const picDirFile = @embedFile(rootPath ++ "PICDIR");
-const viewDirFile = @embedFile(rootPath ++ "VIEWDIR");
-// const sndDirFile = @embedFile(rootPath ++ "SNDDIR");
-const vol0 = @embedFile(rootPath ++ "VOL.0");
-const vol1 = @embedFile(rootPath ++ "VOL.1");
-const vol2 = @embedFile(rootPath ++ "VOL.2");
 
 const messageDecryptKey = "Avis Durgan";
 
@@ -36,23 +23,31 @@ const TOTAL_VARS: usize = 256;
 const TOTAL_FLAGS: usize = 256;
 const TOTAL_CONTROLLERS: usize = 256;
 
-pub const TOTAL_GAME_OBJS: usize = 16; // also called screen objs.
+// also called screen objs.
+pub const TOTAL_GAME_OBJS: usize = 16;
 
 const LOGIC_STACK_SIZE: usize = 255; // Arbitrary size has been chosen of 255, I don't expect to exceed it with tech from 1980s.
 const DIR_INDEX_SIZE: usize = 300;
+
+const vm_width = 1280;
+const vm_height = 672;
+
+var agiFileList: [7][]const u8 = undefined;
+
+pub const AGIFile = enum(usize) {
+    LOGDIR = 0,
+    PICDIR = 1,
+    SNDDIR = 2,
+    VIEWDIR = 3,
+    VOL_0 = 4,
+    VOL_1 = 5,
+    VOL_2 = 6,
+};
 
 const DirectoryIndex = struct {
     vol: u32,
     offset: u32,
 };
-
-const vm_width = 1280;
-const vm_height = 672;
-
-// pub var visualBuffer = clib.GenImageColor(vm_width, vm_height, hlp.col(255, 255, 255, 255));
-// pub var priorityBuffer = clib.GenImageColor(vm_width, vm_height, hlp.col(255, 255, 255, 255));
-// pub var framePriorityData = clib.GenImageColor(vm_width, vm_height, hlp.col(255, 255, 255, 255));
-// pub var frameData = clib.GenImageColor(vm_width, vm_height, hlp.col(255, 255, 255, 255));
 
 // Needed because Zig can't resolve error unions with recursive function calls.
 //const VMError = error{ EndOfStream, OutOfMemory, NoSpaceLeft };
@@ -84,6 +79,28 @@ fn buildDirIndex(dirFile: []const u8) ![DIR_INDEX_SIZE]DirectoryIndex {
     }
     // Return a copy of the loaded index array.
     return index;
+}
+
+fn loadFiles() anyerror!void {
+    const files_of_interest = [_][]const u8{
+        "LOGDIR",
+        "PICDIR",
+        "SNDDIR",
+        "VIEWDIR",
+
+        // NOTE: Technically we should just stat the file-system to find all vols or iterate the directory I suppose.
+        "VOL.0",
+        "VOL.1",
+        "VOL.2",
+    };
+
+    var ctr: usize = 0;
+    for (files_of_interest) |name| {
+        var buf: [50]u8 = undefined;
+        const result = try std.fmt.bufPrint(&buf, "test-agi-game/{s}", .{name});
+        agiFileList[ctr] = try std.fs.cwd().readFileAlloc(allocator, result, 1024 * 1024);
+        ctr += 1;
+    }
 }
 
 pub const VM = struct {
@@ -125,12 +142,14 @@ pub const VM = struct {
     }
 
     pub fn vm_bootstrap(self: *VM) !void {
-        self.resMan = rm.ResourceManager.init(allocator);
+        try loadFiles();
 
         // Seed directory index data, not worried about sound DIR for now.
-        self.logicIndex = try buildDirIndex(logDirFile);
-        self.picIndex = try buildDirIndex(picDirFile);
-        self.viewIndex = try buildDirIndex(viewDirFile);
+        self.logicIndex = try buildDirIndex(agiFileList[@enumToInt(AGIFile.LOGDIR)]);
+        self.picIndex = try buildDirIndex(agiFileList[@enumToInt(AGIFile.PICDIR)]);
+        self.viewIndex = try buildDirIndex(agiFileList[@enumToInt(AGIFile.VIEWDIR)]);
+
+        self.resMan = rm.ResourceManager.init(allocator);
     }
 
     pub fn vm_start(self: *VM) !void {
@@ -149,14 +168,15 @@ pub const VM = struct {
         //     this.flags[i] = false;
         // }
 
-        self.write_var(0, 0);
-        self.write_var(26, 3); // EGA
-        self.write_var(8, 255); // Pages of free memory
-        self.write_var(23, 15); // Sound volume
-        self.write_var(24, 41); // Input buffer size
-        self.set_flag(9, true); // Sound enabled
-        self.set_flag(11, true); // Logic 0 executed for the first time
-        self.set_flag(5, true); // Room script executed for the first time
+        self.write_var(cmds.VM_VARS.CurrentRoom.into(), 0);
+        self.write_var(cmds.VM_VARS.Monitor.into(), 3); // EGA
+        self.write_var(cmds.VM_VARS.FreePages.into(), 255);
+        self.write_var(cmds.VM_VARS.Volume.into(), 15);
+        self.write_var(cmds.VM_VARS.MaxInputCharacters.into(), 41); // Input buffer size
+
+        self.set_flag(cmds.VM_FLAGS.SoundOn.into(), true); // Sound enabled
+        self.set_flag(cmds.VM_FLAGS.LogicZeroFirstTime.into(), true); // Logic 0 executed for the first time
+        self.set_flag(cmds.VM_FLAGS.NewRoomExec.into(), true); // Room script executed for the first time
 
         try stmts.agi_unanimate_all(self);
         //self.agi_load_logic(0);
@@ -176,24 +196,24 @@ pub const VM = struct {
 
     fn vm_set_ego_dir(self: *VM, newEgoDir: u8) void {
         const egoDir = self.read_var(6);
-        self.write_var(6, if (egoDir == newEgoDir) 0 else newEgoDir);
+        self.write_var(cmds.VM_VARS.EgoDirection.into(), if (egoDir == newEgoDir) 0 else newEgoDir);
     }
 
     pub fn vm_cycle(self: *VM) !void {
-        self.set_flag(2, false); // The player has entered a command
-        self.set_flag(4, false); // said accepted user input
+        self.set_flag(cmds.VM_FLAGS.EnteredCli.into(), false); // The player has entered a command
+        self.set_flag(cmds.VM_FLAGS.SaidAcceptedInput.into(), false); // said accepted user input
 
         var egoObj = &self.gameObjects[0];
 
         var egoDir = self.read_var(6);
         // NOTE: re: self.programControl in other implementations (scummvm, nagi) the boolean flag tracked is playerControl so it's OPPOSITE!!!!
         if (self.programControl) {
-            self.write_var(6, @enumToInt(egoObj.direction));
+            self.write_var(cmds.VM_VARS.EgoDirection.into(), @enumToInt(egoObj.direction));
             //egoDir = self.read_var(6);
         } else {
             //egoObj.direction = @intToEnum(go.Direction, egoDir);
             egoObj.direction = @intToEnum(go.Direction, egoDir);
-            //self.write_var(6, egoDir);
+            //self.write_var(cmds.VM_VARS.EgoDirection.into(), egoDir);
         }
 
         while (true) {
@@ -206,14 +226,14 @@ pub const VM = struct {
                 myArgs.set.a(0);
                 try stmts.agi_call(self, myArgs);
             }
-            self.set_flag(11, false); // Logic 0 executed for the first time.
 
-            // TODO: figure out what these are supposed to represent.
-            self.write_var(@enumToInt(cmds.VM_VARS.BORDER_TOUCH_OBJECT), 0);
-            self.write_var(@enumToInt(cmds.VM_VARS.BORDER_CODE), 0);
-            self.set_flag(5, false);
-            self.set_flag(6, false);
-            self.set_flag(12, false);
+            self.write_var(cmds.VM_VARS.BorderTouchObject.into(), 0);
+            self.write_var(cmds.VM_VARS.BorderCode.into(), 0);
+
+            self.set_flag(cmds.VM_FLAGS.LogicZeroFirstTime.into(), false); // Logic 0 executed for the first time.
+            self.set_flag(cmds.VM_FLAGS.NewRoomExec.into(), false);
+            self.set_flag(cmds.VM_FLAGS.RestartGame.into(), false);
+            self.set_flag(cmds.VM_FLAGS.RestoreJustRan.into(), false);
 
             self.vm_draw_background();
 
@@ -257,12 +277,12 @@ pub const VM = struct {
                     try stmts.agi_set_horizon(self, myArgs);
                 }
 
-                self.write_var(1, self.read_var(0));
-                self.write_var(0, self.newroom);
-                self.write_var(4, 0);
-                self.write_var(5, 0);
-                self.write_var(9, 0);
-                self.write_var(16, self.gameObjects[0].viewNo);
+                self.write_var(cmds.VM_VARS.PreviousRoom.into(), self.read_var(0));
+                self.write_var(cmds.VM_VARS.CurrentRoom.into(), self.newroom);
+                self.write_var(cmds.VM_VARS.BorderCode.into(), 0);
+                self.write_var(cmds.VM_VARS.BorderTouchObject.into(), 0);
+                self.write_var(cmds.VM_VARS.WordNotFound.into(), 0);
+                self.write_var(cmds.VM_VARS.EgoViewResource.into(), self.gameObjects[0].viewNo);
 
                 switch (self.read_var(2)) {
                     // 0 => Touched nothing
@@ -274,13 +294,12 @@ pub const VM = struct {
                     else => {},
                 }
 
-                self.write_var(2, 0);
-                self.set_flag(2, false);
+                self.write_var(cmds.VM_VARS.BorderTouchEgo.into(), 0);
+                self.set_flag(cmds.VM_FLAGS.EnteredCli.into(), false);
 
                 //this.agi_load_logic_v(0);
-                self.set_flag(5, true);
+                self.set_flag(cmds.VM_FLAGS.NewRoomExec.into(), true);
                 self.newroom = 0;
-                //unreachable;
             } else {
                 break;
             }
@@ -368,31 +387,31 @@ pub const VM = struct {
             if (obj.x != obj.oldX or obj.y != obj.oldY) {
                 if (obj.x <= 0) {
                     if (idx == 0) {
-                        self.write_var(2, 4);
+                        self.write_var(cmds.VM_VARS.BorderTouchEgo.into(), 4);
                     } else {
-                        self.write_var(4, @intCast(u8, idx));
-                        self.write_var(5, 4);
+                        self.write_var(cmds.VM_VARS.BorderCode.into(), @intCast(u8, idx));
+                        self.write_var(cmds.VM_VARS.BorderTouchObject.into(), 4);
                     }
                 } else if (obj.x + try self.vm_cel_width(obj.viewNo, obj.loop, obj.cel) >= 160) {
                     if (idx == 0) {
-                        self.write_var(2, 2);
+                        self.write_var(cmds.VM_VARS.BorderTouchEgo.into(), 2);
                     } else {
-                        self.write_var(4, @intCast(u8, idx));
-                        self.write_var(5, 2);
+                        self.write_var(cmds.VM_VARS.BorderCode.into(), @intCast(u8, idx));
+                        self.write_var(cmds.VM_VARS.BorderTouchObject.into(), 2);
                     }
                 } else if (!obj.ignoreHorizon and obj.y <= self.horizon) {
                     if (idx == 0) {
-                        self.write_var(2, 1);
+                        self.write_var(cmds.VM_VARS.BorderTouchEgo.into(), 1);
                     } else {
-                        self.write_var(4, @intCast(u8, idx));
-                        self.write_var(5, 1);
+                        self.write_var(cmds.VM_VARS.BorderCode.into(), @intCast(u8, idx));
+                        self.write_var(cmds.VM_VARS.BorderTouchObject.into(), 1);
                     }
                 } else if (obj.y >= 168) {
                     if (idx == 0) {
-                        self.write_var(2, 3);
+                        self.write_var(cmds.VM_VARS.BorderTouchEgo.into(), 3);
                     } else {
-                        self.write_var(4, @intCast(u8, idx));
-                        self.write_var(5, 3);
+                        self.write_var(cmds.VM_VARS.BorderCode.into(), @intCast(u8, idx));
+                        self.write_var(cmds.VM_VARS.BorderTouchObject.into(), 3);
                     }
                 }
             }
@@ -453,6 +472,7 @@ pub const VM = struct {
 
             // NOTE: this code is getting there.
             // 1. still need to handle mirror states somehow.
+            // 2. I shouldn't be drawing immediately from an update method.
 
             //std.log.info("larry => \n egoDir => {d}, movementFlag => {s}, dir => {s}", .{ self.read_var(6), obj.movementFlag, obj.direction });
             try self.vm_draw_view(obj.viewNo, obj.loop, obj.cel, @intToFloat(f32, obj.x), @intToFloat(f32, obj.y));
@@ -552,9 +572,9 @@ pub const VM = struct {
     pub fn vm_exec_logic(self: *VM, idx: usize, vol: usize, offset: u32) anyerror!void {
         // Select volume.
         var fbs = switch (vol) {
-            0 => std.io.fixedBufferStream(vol0),
-            1 => std.io.fixedBufferStream(vol1),
-            2 => std.io.fixedBufferStream(vol2),
+            0 => std.io.fixedBufferStream(agiFileList[@enumToInt(AGIFile.VOL_0)]),
+            1 => std.io.fixedBufferStream(agiFileList[@enumToInt(AGIFile.VOL_1)]),
+            2 => std.io.fixedBufferStream(agiFileList[@enumToInt(AGIFile.VOL_2)]),
             else => unreachable,
         };
 
@@ -575,13 +595,14 @@ pub const VM = struct {
         // Parse volume part.
         // self.vm_log("[{d}..{d}] - max size: {d}", .{ newStartOffset, newEndOffset, fbs.getEndPos() });
         var volPartFbs = switch (volNo) {
-            0 => std.io.fixedBufferStream(vol0[newStartOffset..newEndOffset]),
-            1 => std.io.fixedBufferStream(vol1[newStartOffset..newEndOffset]),
-            2 => std.io.fixedBufferStream(vol2[newStartOffset..newEndOffset]),
+            0 => std.io.fixedBufferStream(agiFileList[@enumToInt(AGIFile.VOL_0)][newStartOffset..newEndOffset]),
+            1 => std.io.fixedBufferStream(agiFileList[@enumToInt(AGIFile.VOL_1)][newStartOffset..newEndOffset]),
+            2 => std.io.fixedBufferStream(agiFileList[@enumToInt(AGIFile.VOL_2)][newStartOffset..newEndOffset]),
             else => unreachable,
         };
 
         // Parse message strings first.
+        std.log.info("********BEGIN MESSAGES***********", .{});
 
         // TODO: finish parsing messages and if it works it should XOR with the encryption key: "Avis Durgan" defined above.
         const messageOffset = try volPartFbs.reader().readInt(u16, std.builtin.Endian.Little);
@@ -597,8 +618,8 @@ pub const VM = struct {
         var decryptIndex: usize = 0;
         var i: usize = 0;
         while (i < numMessages) : (i += 1) {
-            const msgPtr = try volPartFbs.reader().readInt(u16, std.builtin.Endian.Little);
-            if (msgPtr == 0) {
+            const msgOffset = try volPartFbs.reader().readInt(u16, std.builtin.Endian.Little);
+            if (msgOffset == 0) {
                 continue;
             }
 
@@ -606,7 +627,7 @@ pub const VM = struct {
             defer msgStr.deinit();
 
             const mPos = try volPartFbs.getPos();
-            try volPartFbs.seekTo(pos + msgPtr + 1);
+            try volPartFbs.seekTo(pos + msgOffset + 1);
             while (true) {
                 const currentChar = try volPartFbs.reader().readByte();
                 const decryptedChar = currentChar ^ messageDecryptKey[decryptIndex];
@@ -616,9 +637,15 @@ pub const VM = struct {
                     decryptIndex = 0;
                 }
                 if (decryptedChar == 0) {
-                    // Forget empty strings which would have a len of 1 but \0 inside them.
-                    if (msgStr.items.len > 1) {
-                        self.vm_log("msgStr => \"{s}\"", .{msgStr.items[0 .. msgStr.items.len - 1]});
+                    if (idx == 0) {
+                        // IMPORTANT: msgIndex must be whatever i is + 1 to be correct.
+                        // BIG TODO: some messages are considered null == "" the empty string and technically those should be populated in the messages index. ie, msg[12] = "";
+                        // BIG TODO: in the game logic loop, no need to keep parsing messages over and over
+                        // BIG OBSERVATION: indices look to be correct, however message len on some strings don't match for some reason from original source.
+                        const msgIndex = i + 1;
+                        const msgLen = msgStr.items.len - 1;
+                        std.log.info("logicNo:{d}, decrptIdx:{d} msg:{d} of {d}, len:{d}", .{ idx, decryptIndex, msgIndex, numMessages, msgLen });
+                        std.log.info("logicNo:{d} msgLen: {d}, msgStr => \"{s}\"", .{ idx, msgLen, msgStr.items[0..msgLen] });
                     }
                     break;
                 }
@@ -833,10 +860,10 @@ pub const VM = struct {
         // NOTE: should the values below get set, the VM will still do it...but not return the data since this is intercepted on read.
         if ((varNo > 0) and (varNo <= 29)) {
             switch (@intToEnum(cmds.VM_VARS, varNo)) {
-                cmds.VM_VARS.SECONDS => return self.vmTimer.secs(),
-                cmds.VM_VARS.MINUTES => return self.vmTimer.mins(),
-                cmds.VM_VARS.HOURS => return self.vmTimer.hrs(),
-                cmds.VM_VARS.DAYS => return self.vmTimer.days(),
+                cmds.VM_VARS.Seconds => return self.vmTimer.secs(),
+                cmds.VM_VARS.Minutes => return self.vmTimer.mins(),
+                cmds.VM_VARS.Hours => return self.vmTimer.hrs(),
+                cmds.VM_VARS.Days => return self.vmTimer.days(),
                 else => return self.vars[varNo],
             }
         }

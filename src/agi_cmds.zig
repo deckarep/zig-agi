@@ -1,68 +1,77 @@
+const std = @import("std");
 const predicates = @import("agi_predicates.zig");
 const statements = @import("agi_statements.zig");
 const vm = @import("vm.zig");
 const aw = @import("args.zig");
 
-// /**
-//  * AGI variables. (VM dedicated Vars Pulled from ScummVM)
-//  */
+//
+//  AGI variables. (VM dedicated Vars Pulled from ScummVM)
+//
 pub const VM_VARS = enum(usize) {
-    CURRENT_ROOM = 0, // 0
-    PREVIOUS_ROOM, // 1
-    BORDER_TOUCH_EGO, // 2
-    SCORE, // 3
-    BORDER_CODE, // 4
-    BORDER_TOUCH_OBJECT, // 5
-    EGO_DIRECTION, // 6
-    MAX_SCORE, // 7
-    FREE_PAGES, // 8
-    WORD_NOT_FOUND, // 9
-    TIME_DELAY, // 10
-    SECONDS, // 11
-    MINUTES, // 12
-    HOURS, // 13
-    DAYS, // 14
-    JOYSTICK_SENSITIVITY, // 15
-    EGO_VIEW_RESOURCE, // 16
-    AGI_ERROR_CODE, // 17
-    AGI_ERROR_INFO, // 18
-    KEY, // 19
-    COMPUTER, // 20
-    WINDOW_AUTO_CLOSE_TIMER, // 21
-    SOUNDGENERATOR, // 22
-    VOLUME, // 23
-    MAX_INPUT_CHARACTERS, // 24
-    SELECTED_INVENTORY_ITEM, // 25
-    MONITOR = 26, // 26
-    MOUSE_BUTTONSTATE = 27, // 27
-    MOUSE_X = 28, // 28
-    MOUSE_Y = 29, // 29
+    CurrentRoom = 0,
+    PreviousRoom = 1,
+    BorderTouchEgo = 2,
+    Score = 3,
+    BorderCode = 4,
+    BorderTouchObject = 5,
+    EgoDirection = 6,
+    MaxScore = 7,
+    FreePages = 8,
+    WordNotFound = 9,
+    TimeDelay = 10,
+    Seconds = 11,
+    Minutes = 12,
+    Hours = 13,
+    Days = 14,
+    JoystickSensitivity = 15,
+    EgoViewResource = 16,
+    AgiErrorCode = 17,
+    AgiErrorInfo = 18,
+    Key = 19,
+    Computer = 20,
+    WindowAutoCloseTimer = 21,
+    Soundgenerator = 22,
+    Volume = 23,
+    MaxInputCharacters = 24,
+    SelectedInventoryItem = 25,
+    Monitor = 26,
+    MouseButtonstate = 27,
+    MouseX = 28,
+    MouseY = 29,
+
+    pub fn into(flag: VM_VARS) usize {
+        const val = @enumToInt(flag);
+        return val;
+    }
 };
 
-// TODO: turn these into usable enum definitions from Zig-land.
+//
+//  AGI flags (VM flags pulled from ScummVM)
+//
+pub const VM_FLAGS = enum(usize) {
+    EgoWater = 0,
+    EgoInvisible = 1,
+    EnteredCli = 2,
+    EgoTouchedP2 = 3,
+    SaidAcceptedInput = 4,
+    NewRoomExec = 5,
+    RestartGame = 6,
+    ScriptBlocked = 7,
+    JoySensitivity = 8,
+    SoundOn = 9,
+    DebuggerOn = 10,
+    LogicZeroFirstTime = 11,
+    RestoreJustRan = 12,
+    StatusSelectsItems = 13,
+    MenusAccessible = 14,
+    OutputMode = 15,
+    AutoRestart = 16,
 
-// /**
-//  * AGI flags (VM flags pulled from ScummVM)
-//  */
-// enum {
-// 	VM_FLAG_EGO_WATER = 0,  // 0
-// 	VM_FLAG_EGO_INVISIBLE,  // 1
-// 	VM_FLAG_ENTERED_CLI,    // 2
-// 	VM_FLAG_EGO_TOUCHED_P2,    // 3
-// 	VM_FLAG_SAID_ACCEPTED_INPUT,    // 4
-// 	VM_FLAG_NEW_ROOM_EXEC,  // 5
-// 	VM_FLAG_RESTART_GAME, // 6
-// 	VM_FLAG_SCRIPT_BLOCKED, // 7
-// 	VM_FLAG_JOY_SENSITIVITY, //8
-// 	VM_FLAG_SOUND_ON, // 9
-// 	VM_FLAG_DEBUGGER_ON,        // 10
-// 	VM_FLAG_LOGIC_ZERO_FIRST_TIME, //11
-// 	VM_FLAG_RESTORE_JUST_RAN, //12
-// 	VM_FLAG_STATUS_SELECTS_ITEMS, //13
-// 	VM_FLAG_MENUS_ACCESSIBLE, //14
-// 	VM_FLAG_OUTPUT_MODE,        // 15
-// 	VM_FLAG_AUTO_RESTART //16
-// };
+    pub fn into(flag: VM_FLAGS) usize {
+        const val = @enumToInt(flag);
+        return val;
+    }
+};
 
 // Predicate/Statement commands also cross-referenced with:
 // * https://github.com/r1sc/agi.js/blob/master/Interpreter.ts

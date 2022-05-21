@@ -671,11 +671,17 @@ pub fn agi_move_obj(self: *vm.VM, args: *aw.Args) anyerror!void {
     obj.flagToSetWhenFinished = flagNo;
 }
 
-pub fn agi_display(self: *vm.VM, args: *aw.Args) anyerror!void {
+pub fn agi_display(_: *vm.VM, args: *aw.Args) anyerror!void {
     const row = args.get.a();
     const col = args.get.b();
-    const msg = args.get.c();
-    self.vm_log("agi_display({d}:row, {d}:col, {d}:msg) invoked...", .{ row, col, msg });
+    const msgNo = args.get.c();
+
+    // TODO: let's tackle this next! Display messages in the console window.
+    // From the original source of RM1.MSG (huh? what source?):
+    //      Display( 23, 3, 2); (row, col, msgNo) where msg 2 == "Adventure Game Development System"
+    //      Display( 24, 4, 3);                   where msg 3 == "(C) 1987 by Sierra On-Line, Inc."
+
+    std.log.info("agi_display(row:{d}, col:{d}, msgNo:{d}) invoked...", .{ row, col, msgNo });
     //this.screen.bltText(row, col, this.loadedLogics[this.logicNo].logic.messages[msg]);
 }
 

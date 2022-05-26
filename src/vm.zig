@@ -8,10 +8,15 @@ const clib = @import("c_defs.zig").c;
 const timer = @import("sys_timers.zig");
 const rm = @import("resource_manager.zig");
 const aw = @import("args.zig");
+const assert = std.debug.assert;
 
 const ArrayList = std.ArrayList;
+
 var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
 pub const allocator = arena.allocator();
+
+var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+pub const tempAllocator = gpa.allocator();
 
 const pathTextures = "/Users/deckarep/Desktop/ralph-agi/test-agi-game/extracted/view/";
 const pathPics = "/Users/deckarep/Desktop/ralph-agi/test-agi-game/extracted/pic/";
@@ -94,12 +99,12 @@ fn loadFiles() anyerror!void {
         "VOL.2",
     };
 
-    var ctr: usize = 0;
+    var i: usize = 0;
     for (files_of_interest) |name| {
         var buf: [50]u8 = undefined;
         const result = try std.fmt.bufPrint(&buf, "test-agi-game/{s}", .{name});
-        agiFileList[ctr] = try std.fs.cwd().readFileAlloc(allocator, result, 1024 * 1024);
-        ctr += 1;
+        agiFileList[i] = try std.fs.cwd().readFileAlloc(allocator, result, 1024 * 1024);
+        i += 1;
     }
 }
 
@@ -109,7 +114,9 @@ pub const VM = struct {
     viewDB: [1000][20]u8, // backing array to field below.
 
     picTex: clib.RenderTexture2D,
-    show_background: bool,
+    show_background: bool = false,
+
+    textGrid: [25][40]u8 = std.mem.zeroes([25][40]u8),
 
     newroom: u8,
     horizon: u8,
@@ -137,7 +144,7 @@ pub const VM = struct {
 
     // init creates a new instance of an AGI VM.
     pub fn init(debugState: bool) VM {
-        var myVM = VM{ .show_background = false, .picTex = undefined, .debug = debugState, .resMan = undefined, .viewDB = std.mem.zeroes([1000][20]u8), .vmTimer = undefined, .logicIndex = undefined, .picIndex = undefined, .viewIndex = undefined, .logicStack = std.mem.zeroes([LOGIC_STACK_SIZE]u8), .logicStackPtr = 0, .activeLogicNo = 0, .blockX1 = 0, .blockX2 = 0, .blockY1 = 0, .blockY2 = 0, .newroom = 0, .horizon = 0, .allowInput = false, .haveKey = false, .programControl = false, .vars = std.mem.zeroes([TOTAL_VARS]u8), .flags = std.mem.zeroes([TOTAL_FLAGS]bool), .gameObjects = std.mem.zeroes([TOTAL_GAME_OBJS]go.GameObject) };
+        var myVM = VM{ .picTex = undefined, .debug = debugState, .resMan = undefined, .viewDB = std.mem.zeroes([1000][20]u8), .vmTimer = undefined, .logicIndex = undefined, .picIndex = undefined, .viewIndex = undefined, .logicStack = std.mem.zeroes([LOGIC_STACK_SIZE]u8), .logicStackPtr = 0, .activeLogicNo = 0, .blockX1 = 0, .blockX2 = 0, .blockY1 = 0, .blockY2 = 0, .newroom = 0, .horizon = 0, .allowInput = false, .haveKey = false, .programControl = false, .vars = std.mem.zeroes([TOTAL_VARS]u8), .flags = std.mem.zeroes([TOTAL_FLAGS]bool), .gameObjects = std.mem.zeroes([TOTAL_GAME_OBJS]go.GameObject) };
         return myVM;
     }
 
@@ -247,6 +254,51 @@ pub const VM = struct {
 
                     // TODO: updates should not also be drawing...so we need to draw the background + scene objects as a last step probably.
                     try self.vm_updateObject(i, obj);
+                }
+            }
+
+            // Draw text grid perhaps.
+            // TODO: move into a dedicated vm_draw_text func.
+            for (self.textGrid) |r, v| {
+                // 1. find first non-zero.
+                var foundStr = false;
+                var ii: usize = 0;
+                while (ii < r.len) : (ii += 1) {
+                    if (r[ii] != 0) {
+                        foundStr = true;
+                        break;
+                    }
+                }
+
+                if (foundStr) {
+                    // 2. find end of string.
+                    var x: usize = ii;
+                    while (x < r.len) : (x += 1) {
+                        if (r[x] == 0) {
+                            break;
+                        }
+                    }
+
+                    // 3. Get pointer slice into data and dupe to a cstr.
+
+                    const yUnit = 730 / (24 + 1);
+                    const shadowOffset = 2;
+                    const fontSize = yUnit;
+                    const yOffset = yUnit * @intCast(c_int, v);
+
+                    const word = r[ii..x];
+                    var whiteSpace: [40]u8 = undefined;
+                    std.mem.set(u8, &whiteSpace, ' ');
+                    var buf: [40]u8 = undefined;
+                    const result = try std.fmt.bufPrint(&buf, "{s}{s}", .{ whiteSpace[0 .. ii - 1], word });
+                    const cstr = try tempAllocator.dupeZ(u8, result);
+                    defer tempAllocator.free(cstr);
+
+                    const textWidthSize = clib.MeasureText(cstr, fontSize);
+                    const xOffset = (1280 / 2) - @intCast(c_int, (@intCast(u16, textWidthSize) / 2));
+
+                    clib.DrawText(cstr, xOffset - shadowOffset, yOffset - shadowOffset, fontSize, clib.BLACK);
+                    clib.DrawText(cstr, xOffset, yOffset, fontSize, clib.WHITE);
                 }
             }
 
@@ -570,6 +622,11 @@ pub const VM = struct {
     }
 
     pub fn vm_exec_logic(self: *VM, idx: usize, vol: usize, offset: u32) anyerror!void {
+        // exec_arena lives for the life of this func: vm_exec_logic call.
+        var exec_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        const exec_allocator = exec_arena.allocator();
+        defer exec_arena.deinit();
+
         // Select volume.
         var fbs = switch (vol) {
             0 => std.io.fixedBufferStream(agiFileList[@enumToInt(AGIFile.VOL_0)]),
@@ -602,7 +659,7 @@ pub const VM = struct {
         };
 
         // Parse message strings first.
-        std.log.info("********BEGIN MESSAGES***********", .{});
+        var messageMap = std.AutoHashMap(usize, []const u8).init(exec_allocator);
 
         // TODO: finish parsing messages and if it works it should XOR with the encryption key: "Avis Durgan" defined above.
         const messageOffset = try volPartFbs.reader().readInt(u16, std.builtin.Endian.Little);
@@ -612,7 +669,6 @@ pub const VM = struct {
         const pos = try volPartFbs.getPos();
         //this.messageStartOffset = pos;
         const numMessages = try volPartFbs.reader().readByte();
-        //self.vm_log("no. messages => {d}", .{numMessages});
         _ = try volPartFbs.reader().readInt(u16, std.builtin.Endian.Little);
 
         var decryptIndex: usize = 0;
@@ -636,17 +692,17 @@ pub const VM = struct {
                 if (decryptIndex >= messageDecryptKey.len) {
                     decryptIndex = 0;
                 }
+
                 if (decryptedChar == 0) {
-                    if (idx == 0) {
-                        // IMPORTANT: msgIndex must be whatever i is + 1 to be correct.
-                        // BIG TODO: some messages are considered null == "" the empty string and technically those should be populated in the messages index. ie, msg[12] = "";
-                        // BIG TODO: in the game logic loop, no need to keep parsing messages over and over
-                        // BIG OBSERVATION: indices look to be correct, however message len on some strings don't match for some reason from original source.
-                        const msgIndex = i + 1;
-                        const msgLen = msgStr.items.len - 1;
-                        std.log.info("logicNo:{d}, decrptIdx:{d} msg:{d} of {d}, len:{d}", .{ idx, decryptIndex, msgIndex, numMessages, msgLen });
-                        std.log.info("logicNo:{d} msgLen: {d}, msgStr => \"{s}\"", .{ idx, msgLen, msgStr.items[0..msgLen] });
-                    }
+
+                    // IMPORTANT: msgIndex must be whatever i is + 1 to be correct.
+                    // BIG TODO: in the game logic loop, no need to keep parsing messages over and over
+
+                    const msgIndex = i + 1;
+                    const msgLen = msgStr.items.len - 1;
+                    const dupeStr = try exec_allocator.dupe(u8, msgStr.items[0..msgLen]);
+                    try messageMap.put(msgIndex, dupeStr);
+                    self.vm_log("logicNo:{d} msgLen: {d}, msgStr => \"{s}\"", .{ idx, msgLen, msgStr.items[0..msgLen] });
                     break;
                 }
             }
@@ -783,7 +839,15 @@ pub const VM = struct {
                         var myArgs = &aw.Args.init(&buf);
 
                         errdefer std.log.warn("statement ERRORED: \"{s}\"", .{statementFunc.name});
-                        try statementFunc.func(self, try myArgs.eat(&volPartFbs, @intCast(usize, statementFunc.arity)));
+                        if (opCodeNR == 103) {
+                            const ctx = aw.Context{ .messageMap = &messageMap };
+                            try stmts.agi_display_ctx(self, &ctx, try myArgs.eat(&volPartFbs, @intCast(usize, statementFunc.arity)));
+                        } else if (opCodeNR == 104) {
+                            const ctx = aw.Context{ .messageMap = &messageMap };
+                            try stmts.agi_display_v_ctx(self, &ctx, try myArgs.eat(&volPartFbs, @intCast(usize, statementFunc.arity)));
+                        } else {
+                            try statementFunc.func(self, try myArgs.eat(&volPartFbs, @intCast(usize, statementFunc.arity)));
+                        }
 
                         // Finally, special handling for new.room opcode.
                         if (opCodeNR == 0x12) {

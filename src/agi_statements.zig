@@ -234,6 +234,16 @@ pub fn agi_force_update(self: *vm.VM, args: *aw.Args) anyerror!void {
 }
 
 pub fn agi_clear_lines(self: *vm.VM, args: *aw.Args) anyerror!void {
+    const fromRow = args.get.a();
+    const toRow = args.get.b();
+
+    // Note: for this zig implementation we're not doing anything with color at the moment.
+    // const color = args.get.c();
+
+    var y: usize = @intCast(usize, fromRow);
+    while (y < @intCast(usize, toRow) + 1) : (y += 1) {
+        self.textGrid[y] = std.mem.zeroes([40]u8);
+    }
     // for (var y = fromRow; y < row + 1; y++) {
     //         this.screen.bltText(y, 0, "                                        ");
     //     }
@@ -681,7 +691,13 @@ pub fn agi_display(_: *vm.VM, args: *aw.Args) anyerror!void {
     //      Display( 23, 3, 2); (row, col, msgNo) where msg 2 == "Adventure Game Development System"
     //      Display( 24, 4, 3);                   where msg 3 == "(C) 1987 by Sierra On-Line, Inc."
 
-    std.log.info("agi_display(row:{d}, col:{d}, msgNo:{d}) invoked...", .{ row, col, msgNo });
+    //const msg = self.messageList.items[msgNo];
+    // for (self.messageList.items) |x| {
+    //     std.log.info("x => {s}", .{x});
+    // }
+    //std.log.info("activeMessages: {any}", .{self.activeMessages});
+    std.log.info("agi_display(row:{d}, col:{d}, msgNo:{d})", .{ row, col, msgNo });
+
     //this.screen.bltText(row, col, this.loadedLogics[this.logicNo].logic.messages[msg]);
 }
 
@@ -695,6 +711,37 @@ pub fn agi_display_v(self: *vm.VM, args: *aw.Args) anyerror!void {
     args.set.c(self.read_var(varNo3));
 
     try agi_display(self, args.pack());
+}
+
+pub fn agi_display_ctx(self: *vm.VM, ctx: *const aw.Context, args: *aw.Args) anyerror!void {
+    const row = args.get.a();
+    const col = args.get.b();
+    const msgNo = args.get.c();
+
+    // TODO: let's tackle this next! Display messages in the console window.
+    // From the original source of RM1.MSG (huh? what source?):
+    //      Display( 23, 3, 2); (row, col, msgNo) where msg 2 == "Adventure Game Development System"
+    //      Display( 24, 4, 3);                   where msg 3 == "(C) 1987 by Sierra On-Line, Inc."
+    const msg = ctx.messageMap.get(@intCast(usize, msgNo)).?;
+
+    var i: usize = 0;
+    while (i < msg.len) : (i += 1) {
+        self.textGrid[row][col + i] = msg[i];
+    }
+
+    //std.log.info("agi_display(row:{d}, col:{d}, msgNo:{d}) => {s}", .{ row, col, msgNo, msg });
+}
+
+pub fn agi_display_v_ctx(self: *vm.VM, ctx: *const aw.Context, args: *aw.Args) anyerror!void {
+    const varNo1 = args.get.a();
+    const varNo2 = args.get.b();
+    const varNo3 = args.get.c();
+
+    args.set.a(self.read_var(varNo1));
+    args.set.b(self.read_var(varNo2));
+    args.set.c(self.read_var(varNo3));
+
+    try agi_display_ctx(self, ctx, args.pack());
 }
 
 pub fn agi_fix_loop(self: *vm.VM, args: *aw.Args) anyerror!void {

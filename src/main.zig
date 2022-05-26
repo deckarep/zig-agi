@@ -58,35 +58,12 @@ var vmInstance = agi_vm.VM.init(false);
 
 // Adapted from: https://github.com/r1sc/agi.js/blob/master/Interpreter.ts
 
-var strSlices: [255][]const u8 = undefined;
-
-fn captureStrings() anyerror!void {
-    const strs = [_][]const u8{
-        "a",
-        "aaaaaaab",
-        "fffffoooooooooooooo",
-        "zzzzz",
-    };
-
-    var ctr: usize = 0;
-    for (strs) |s| {
-        strSlices[ctr] = s;
-        ctr += 1;
-    }
-}
-
 pub fn main() anyerror!void {
     defer arena.deinit();
 
-    try captureStrings();
-
-    const sSlice = strSlices[3];
-    std.log.info("str slice => {s}", .{sSlice});
-
-    //std.os.exit(0);
     c.SetConfigFlags(c.FLAG_VSYNC_HINT);
     // Remember: these dimensions are the ExtractAGI upscaled size!!!
-    c.InitWindow(1280 + 245, 672, "AGI Interpreter - @deckarep");
+    c.InitWindow(1280 + 245, 730, "AGI Interpreter - @deckarep");
     c.InitAudioDevice();
     c.SetTargetFPS(60);
     defer c.CloseWindow();
@@ -118,12 +95,22 @@ pub fn main() anyerror!void {
         defer c.EndDrawing();
         c.ClearBackground(c.BLACK);
 
+        //try testing();
+
         try vmInstance.vm_cycle();
         renderDebugInfo();
 
         // TODO: factor in the var[10] which is the speed setting.
         std.time.sleep(70 * std.time.ns_per_ms);
     }
+}
+
+fn testing() !void {
+    var x: [50]u8 = undefined;
+    const result = try std.fmt.bufPrint(&x, "Hello {d}", .{5});
+    const cstr = try allocator.dupeZ(u8, result);
+
+    c.DrawText(cstr, 10, 20, 30, c.WHITE);
 }
 
 fn renderDebugInfo() void {

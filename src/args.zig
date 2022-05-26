@@ -2,6 +2,11 @@ const std = @import("std");
 const expect = std.testing.expect;
 const assert = std.debug.assert;
 const testing = std.testing;
+const ArrayList = std.ArrayList;
+
+pub const Context = struct {
+    messageMap: *std.AutoHashMap(usize, []const u8),
+};
 
 // Args wrangling helps with consuming and passing around args.
 // Keep in mind if you reuse the struct you need to ensure your set args are either the same size or less (count-wise).

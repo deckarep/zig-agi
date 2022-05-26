@@ -244,10 +244,6 @@ pub fn agi_clear_lines(self: *vm.VM, args: *aw.Args) anyerror!void {
     while (y < @intCast(usize, toRow) + 1) : (y += 1) {
         self.textGrid[y] = std.mem.zeroes([40]u8);
     }
-    // for (var y = fromRow; y < row + 1; y++) {
-    //         this.screen.bltText(y, 0, "                                        ");
-    //     }
-    self.vm_log("agi_clear_lines({d},{d},{d})", .{ args.get.a(), args.get.b(), args.get.c() });
 }
 
 pub fn agi_prevent_input(self: *vm.VM, _: *aw.Args) anyerror!void {

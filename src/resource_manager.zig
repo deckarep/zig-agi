@@ -234,6 +234,19 @@ pub const ResourceManager = struct {
         return gop.value_ptr.resource.MusicStream;
     }
 
+    pub fn ref_shader(self: *ResourceManager, key: ResourceKey) ?c.Shader {
+        var buf: [300]u8 = undefined;
+        const k = std.fmt.bufPrint(&buf, "{d} : {s}", .{ key.file_type, key.file_path }) catch unreachable;
+
+        if (self.internal2.get(k)) |*foundShader| {
+            return foundShader.resource.Shader;
+        } else {
+            //std.log.warn("texture file: {s} is missing!", .{key.file_path});
+        }
+
+        return null;
+    }
+
     pub fn ref_texture(self: *ResourceManager, key: ResourceKey) ?c.Texture {
         var buf: [300]u8 = undefined;
         const k = std.fmt.bufPrint(&buf, "{d} : {s}", .{ key.file_type, key.file_path }) catch unreachable;

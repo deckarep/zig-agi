@@ -18,9 +18,13 @@ pub const allocator = arena.allocator();
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 pub const tempAllocator = gpa.allocator();
 
+const GLSL_VERSION: i32 = if (@hasDecl(clib, "PLATFORM_RPI")) 100 else 330;
+const GLSL_VERSION_STRING = std.fmt.comptimePrint("{d}", .{GLSL_VERSION});
+
 const pathTextures = "/Users/deckarep/Desktop/ralph-agi/test-agi-game/extracted/view/";
 const pathPics = "/Users/deckarep/Desktop/ralph-agi/test-agi-game/extracted/pic/";
 pub const sampleTexture = pathTextures ++ "43_0_0.png";
+const pathShaders = "resources/shaders/glsl" ++ GLSL_VERSION_STRING ++ "/";
 
 const messageDecryptKey = "Avis Durgan";
 
@@ -142,6 +146,8 @@ pub const VM = struct {
 
     vmTimer: timer.VM_Timer,
 
+    shaderSeconds: f32 = 0.0,
+
     // init creates a new instance of an AGI VM.
     pub fn init(debugState: bool) VM {
         var myVM = VM{ .picTex = undefined, .debug = debugState, .resMan = undefined, .viewDB = std.mem.zeroes([1000][20]u8), .vmTimer = undefined, .logicIndex = undefined, .picIndex = undefined, .viewIndex = undefined, .logicStack = std.mem.zeroes([LOGIC_STACK_SIZE]u8), .logicStackPtr = 0, .activeLogicNo = 0, .blockX1 = 0, .blockX2 = 0, .blockY1 = 0, .blockY2 = 0, .newroom = 0, .horizon = 0, .allowInput = false, .haveKey = false, .programControl = false, .vars = std.mem.zeroes([TOTAL_VARS]u8), .flags = std.mem.zeroes([TOTAL_FLAGS]bool), .gameObjects = std.mem.zeroes([TOTAL_GAME_OBJS]go.GameObject) };
@@ -157,6 +163,35 @@ pub const VM = struct {
         self.viewIndex = try buildDirIndex(agiFileList[@enumToInt(AGIFile.VIEWDIR)]);
 
         self.resMan = rm.ResourceManager.init(allocator);
+
+        // Initialize shader (move this to func)
+        const swirlShader = try self.resMan.add_shader(rm.WithKey(rm.ResourceTag.Shader, pathShaders ++ "wave.fs"));
+
+        //const secondsLoc = clib.GetShaderLocation(swirlShader, "secondes");
+        const freqXLoc = clib.GetShaderLocation(swirlShader, "freqX");
+        const freqYLoc = clib.GetShaderLocation(swirlShader, "freqY");
+        const ampXLoc = clib.GetShaderLocation(swirlShader, "ampX");
+        const ampYLoc = clib.GetShaderLocation(swirlShader, "ampY");
+        const speedXLoc = clib.GetShaderLocation(swirlShader, "speedX");
+        const speedYLoc = clib.GetShaderLocation(swirlShader, "speedY");
+        const freqX: f32 = 25.0;
+        const freqY: f32 = 25.0;
+        const ampX: f32 = 5.0;
+        const ampY: f32 = 5.0;
+        const speedX: f32 = 8.0;
+        const speedY: f32 = 8.0;
+        const screenSize: [2]f32 = [2]f32{ @intToFloat(f32, vm_width), @intToFloat(f32, vm_height) };
+
+        clib.SetShaderValue(swirlShader, clib.GetShaderLocation(swirlShader, "size"), &screenSize, clib.SHADER_UNIFORM_VEC2);
+        clib.SetShaderValue(swirlShader, freqXLoc, &freqX, clib.SHADER_UNIFORM_FLOAT);
+        clib.SetShaderValue(swirlShader, freqYLoc, &freqY, clib.SHADER_UNIFORM_FLOAT);
+        clib.SetShaderValue(swirlShader, ampXLoc, &ampX, clib.SHADER_UNIFORM_FLOAT);
+        clib.SetShaderValue(swirlShader, ampYLoc, &ampY, clib.SHADER_UNIFORM_FLOAT);
+        clib.SetShaderValue(swirlShader, speedXLoc, &speedX, clib.SHADER_UNIFORM_FLOAT);
+        clib.SetShaderValue(swirlShader, speedYLoc, &speedY, clib.SHADER_UNIFORM_FLOAT);
+
+        //var shaderSeconds: f32 = 0.0;
+        self.shaderSeconds = 0.0;
     }
 
     pub fn vm_start(self: *VM) !void {
@@ -207,6 +242,14 @@ pub const VM = struct {
     }
 
     pub fn vm_cycle(self: *VM) !void {
+        const swirlShader = self.resMan.ref_shader(rm.WithKey(rm.ResourceTag.Shader, pathShaders ++ "wave.fs"));
+        self.shaderSeconds += clib.GetFrameTime() / 2.0;
+
+        if (swirlShader) |sh| {
+            const secondsLoc = clib.GetShaderLocation(sh, "secondes");
+            clib.SetShaderValue(sh, secondsLoc, &self.shaderSeconds, clib.SHADER_UNIFORM_FLOAT);
+        }
+
         self.set_flag(cmds.VM_FLAGS.EnteredCli.into(), false); // The player has entered a command
         self.set_flag(cmds.VM_FLAGS.SaidAcceptedInput.into(), false); // said accepted user input
 
@@ -606,6 +649,10 @@ pub const VM = struct {
 
     // vm_draw_background blits the entire pic+static views (added to pic) to the screen.
     pub fn vm_draw_background(self: *VM) void {
+        const swirlShader = self.resMan.ref_shader(rm.WithKey(rm.ResourceTag.Shader, pathShaders ++ "wave.fs")).?;
+        clib.BeginShaderMode(swirlShader);
+        defer clib.EndShaderMode();
+
         clib.DrawTextureRec(self.picTex.texture, hlp.rect(0, 0, @intToFloat(f32, self.picTex.texture.width), @intToFloat(f32, -self.picTex.texture.height)), hlp.vec2(0, 0), clib.WHITE);
     }
 

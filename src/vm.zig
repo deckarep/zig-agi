@@ -174,12 +174,12 @@ pub const VM = struct {
         const ampYLoc = clib.GetShaderLocation(swirlShader, "ampY");
         const speedXLoc = clib.GetShaderLocation(swirlShader, "speedX");
         const speedYLoc = clib.GetShaderLocation(swirlShader, "speedY");
-        const freqX: f32 = 25.0;
-        const freqY: f32 = 25.0;
+        const freqX: f32 = 5.0;
+        const freqY: f32 = 5.0;
         const ampX: f32 = 5.0;
         const ampY: f32 = 5.0;
-        const speedX: f32 = 8.0;
-        const speedY: f32 = 8.0;
+        const speedX: f32 = 2.0;
+        const speedY: f32 = 2.0;
         const screenSize: [2]f32 = [2]f32{ @intToFloat(f32, vm_width), @intToFloat(f32, vm_height) };
 
         clib.SetShaderValue(swirlShader, clib.GetShaderLocation(swirlShader, "size"), &screenSize, clib.SHADER_UNIFORM_VEC2);
@@ -190,7 +190,6 @@ pub const VM = struct {
         clib.SetShaderValue(swirlShader, speedXLoc, &speedX, clib.SHADER_UNIFORM_FLOAT);
         clib.SetShaderValue(swirlShader, speedYLoc, &speedY, clib.SHADER_UNIFORM_FLOAT);
 
-        //var shaderSeconds: f32 = 0.0;
         self.shaderSeconds = 0.0;
     }
 
@@ -649,9 +648,13 @@ pub const VM = struct {
 
     // vm_draw_background blits the entire pic+static views (added to pic) to the screen.
     pub fn vm_draw_background(self: *VM) void {
-        const swirlShader = self.resMan.ref_shader(rm.WithKey(rm.ResourceTag.Shader, pathShaders ++ "wave.fs")).?;
-        clib.BeginShaderMode(swirlShader);
-        defer clib.EndShaderMode();
+        const swirlShader = self.resMan.ref_shader(rm.WithKey(rm.ResourceTag.Shader, pathShaders ++ "wave.fs"));
+        if (swirlShader) |sh| {
+            clib.BeginShaderMode(sh);
+        }
+        defer if (swirlShader) |_| {
+            clib.EndShaderMode();
+        };
 
         clib.DrawTextureRec(self.picTex.texture, hlp.rect(0, 0, @intToFloat(f32, self.picTex.texture.width), @intToFloat(f32, -self.picTex.texture.height)), hlp.vec2(0, 0), clib.WHITE);
     }

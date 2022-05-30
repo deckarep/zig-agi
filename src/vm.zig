@@ -18,6 +18,9 @@ pub const allocator = arena.allocator();
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 pub const tempAllocator = gpa.allocator();
 
+var prng = std.rand.DefaultPrng.init(0);
+const rand = prng.random();
+
 const GLSL_VERSION: i32 = if (@hasDecl(clib, "PLATFORM_RPI")) 100 else 330;
 const GLSL_VERSION_STRING = std.fmt.comptimePrint("{d}", .{GLSL_VERSION});
 
@@ -131,8 +134,10 @@ pub const VM = struct {
     flags: [TOTAL_FLAGS]bool,
     gameObjects: [TOTAL_GAME_OBJS]go.GameObject,
 
+    logicScanStartDB: [100]?u64 = std.mem.zeroes([100]?u64),
     logicStack: [LOGIC_STACK_SIZE]u8,
     logicStackPtr: usize,
+
     activeLogicNo: u8,
 
     blockX1: u8,
@@ -241,12 +246,15 @@ pub const VM = struct {
     }
 
     pub fn vm_cycle(self: *VM) !void {
-        const swirlShader = self.resMan.ref_shader(rm.WithKey(rm.ResourceTag.Shader, pathShaders ++ "wave.fs"));
-        self.shaderSeconds += clib.GetFrameTime() / 2.0;
+        // disabled for now because noisly logging.
+        if (false) {
+            const swirlShader = self.resMan.ref_shader(rm.WithKey(rm.ResourceTag.Shader, pathShaders ++ "wave.fs"));
+            self.shaderSeconds += clib.GetFrameTime() / 2.0;
 
-        if (swirlShader) |sh| {
-            const secondsLoc = clib.GetShaderLocation(sh, "secondes");
-            clib.SetShaderValue(sh, secondsLoc, &self.shaderSeconds, clib.SHADER_UNIFORM_FLOAT);
+            if (swirlShader) |sh| {
+                const secondsLoc = clib.GetShaderLocation(sh, "secondes");
+                clib.SetShaderValue(sh, secondsLoc, &self.shaderSeconds, clib.SHADER_UNIFORM_FLOAT);
+            }
         }
 
         self.set_flag(cmds.VM_FLAGS.EnteredCli.into(), false); // The player has entered a command
@@ -272,7 +280,7 @@ pub const VM = struct {
                 // But we only have to do this in a few spots and I will go back and clean this up.
                 var buf: [1]u8 = undefined;
                 var myArgs = &aw.Args.init(&buf);
-                myArgs.set.a(0);
+                myArgs.set.a(0); // Trying to directly load room 11...but this should always be 0.
                 try stmts.agi_call(self, myArgs);
             }
 
@@ -284,8 +292,13 @@ pub const VM = struct {
             self.set_flag(cmds.VM_FLAGS.RestartGame.into(), false);
             self.set_flag(cmds.VM_FLAGS.RestoreJustRan.into(), false);
 
+            // draw background.
             self.vm_draw_background();
 
+            // draw horizon (debug)
+            clib.DrawLineEx(hlp.vec2(0, @intToFloat(f32, self.horizon)), hlp.vec2(160, @intToFloat(f32, self.horizon)), 2.0, clib.YELLOW);
+
+            // draw scene objects (sprites)
             var i: usize = 0;
             while (i < self.gameObjects.len) : (i += 1) {
                 var obj = &self.gameObjects[(self.gameObjects.len - 1) - i];
@@ -299,54 +312,61 @@ pub const VM = struct {
                 }
             }
 
-            // Draw text grid perhaps.
+            // draw text grid perhaps.
             // TODO: move into a dedicated vm_draw_text func.
-            for (self.textGrid) |r, v| {
-                // 1. find first non-zero.
-                var foundStr = false;
-                var ii: usize = 0;
-                while (ii < r.len) : (ii += 1) {
-                    if (r[ii] != 0) {
-                        foundStr = true;
-                        break;
-                    }
-                }
+            // NOTE: we might have a legit bug with this code for multi-line strings!!!!
+            // Commenting out for now.
+            // for (self.textGrid) |r, v| {
+            //     // 1. find first non-zero.
+            //     var foundStr = false;
+            //     var ii: usize = 0;
+            //     while (ii < r.len) : (ii += 1) {
+            //         if (r[ii] != 0) {
+            //             foundStr = true;
+            //             break;
+            //         }
+            //     }
 
-                if (foundStr) {
-                    // 2. find end of string.
-                    var x: usize = ii;
-                    while (x < r.len) : (x += 1) {
-                        if (r[x] == 0) {
-                            break;
-                        }
-                    }
+            //     if (foundStr) {
+            //         // 2. find end of string.
+            //         var x: usize = ii;
+            //         while (x < r.len) : (x += 1) {
+            //             if (r[x] == 0) {
+            //                 break;
+            //             }
+            //         }
 
-                    // 3. Get pointer slice into data and dupe to a cstr.
+            //         // 3. Get pointer slice into data and dupe to a cstr.
 
-                    const yUnit = 730 / (24 + 1);
-                    const shadowOffset = 2;
-                    const fontSize = yUnit;
-                    const yOffset = yUnit * @intCast(c_int, v);
+            //         const yUnit = 730 / (24 + 1);
+            //         const shadowOffset = 2;
+            //         const fontSize = yUnit;
+            //         const yOffset = yUnit * @intCast(c_int, v);
 
-                    const word = r[ii..x];
-                    var whiteSpace: [40]u8 = undefined;
-                    std.mem.set(u8, &whiteSpace, ' ');
-                    var buf: [40]u8 = undefined;
-                    const result = try std.fmt.bufPrint(&buf, "{s}{s}", .{ whiteSpace[0 .. ii - 1], word });
-                    const cstr = try tempAllocator.dupeZ(u8, result);
-                    defer tempAllocator.free(cstr);
+            //         const word = r[ii..x];
+            //         var whiteSpace: [40]u8 = undefined;
+            //         std.mem.set(u8, &whiteSpace, ' ');
+            //         var buf: [40]u8 = undefined;
+            //         const result = try std.fmt.bufPrint(&buf, "{s}{s}", .{ whiteSpace[0 .. ii - 1], word });
+            //         const cstr = try tempAllocator.dupeZ(u8, result);
+            //         defer tempAllocator.free(cstr);
 
-                    const textWidthSize = clib.MeasureText(cstr, fontSize);
-                    const xOffset = (1280 / 2) - @intCast(c_int, (@intCast(u16, textWidthSize) / 2));
+            //         const textWidthSize = clib.MeasureText(cstr, fontSize);
+            //         const xOffset = (1280 / 2) - @intCast(c_int, (@intCast(u16, textWidthSize) / 2));
 
-                    clib.DrawText(cstr, xOffset - shadowOffset, yOffset - shadowOffset, fontSize, clib.BLACK);
-                    clib.DrawText(cstr, xOffset, yOffset, fontSize, clib.WHITE);
-                }
-            }
+            //         clib.DrawText(cstr, xOffset - shadowOffset, yOffset - shadowOffset, fontSize, clib.BLACK);
+            //         clib.DrawText(cstr, xOffset, yOffset, fontSize, clib.WHITE);
+            //     }
+            // }
 
             if (self.newroom != 0) {
                 // need to start handling this logic next, since new room is changed.
-                try stmts.agi_stop_update(self, 0);
+                {
+                    var buf: [1]u8 = undefined;
+                    var myArgs = &aw.Args.init(&buf);
+                    myArgs.set.a(0);
+                    try stmts.agi_stop_update(self, myArgs);
+                }
                 try stmts.agi_unanimate_all(self);
                 // RC: Not sure what to do with this line.
                 //self.loadedLogics = self.loadedLogics.slice(0, 1);
@@ -378,7 +398,7 @@ pub const VM = struct {
                 self.write_var(cmds.VM_VARS.WordNotFound.into(), 0);
                 self.write_var(cmds.VM_VARS.EgoViewResource.into(), self.gameObjects[0].viewNo);
 
-                switch (self.read_var(2)) {
+                switch (self.read_var(cmds.VM_VARS.BorderTouchEgo.into())) {
                     // 0 => Touched nothing
                     // Top edge or horizon
                     1 => self.gameObjects[0].y = 168,
@@ -414,6 +434,7 @@ pub const VM = struct {
             var yStep = obj.stepSize;
 
             switch (obj.movementFlag) {
+                go.MovementFlags.Normal => {},
                 go.MovementFlags.MoveTo => {
                     if (obj.moveToStep != 0) {
                         xStep = obj.moveToStep;
@@ -449,33 +470,49 @@ pub const VM = struct {
                     xStep = std.math.min(xStep, @truncate(u8, absXStep));
                     yStep = std.math.min(yStep, @truncate(u8, absYStep));
                 },
-                else => {
-                    //TODO: other Motion Flag Types
+                go.MovementFlags.ChaseEgo => {
+                    try self.motionFollowEgo(obj);
+                },
+                go.MovementFlags.Wander => {
+                    try self.motionWander(obj);
                 },
             }
 
-            var newX = obj.x;
-            var newY = obj.y;
+            var newX: i16 = @as(i16, obj.x);
+            var newY: i16 = @as(i16, obj.y);
 
             if (obj.direction == go.Direction.Up or obj.direction == go.Direction.UpRight or obj.direction == go.Direction.UpLeft) {
-                newY = obj.y - yStep;
+                newY = @intCast(i16, obj.y) - @intCast(i16, yStep);
             } else if (obj.direction == go.Direction.Down or obj.direction == go.Direction.DownLeft or obj.direction == go.Direction.DownRight) {
-                newY = obj.y + yStep;
+                newY = @intCast(i16, obj.y) + @intCast(i16, yStep);
             }
 
             if (obj.direction == go.Direction.Left or obj.direction == go.Direction.UpLeft or obj.direction == go.Direction.DownLeft) {
-                newX = obj.x - xStep;
+                newX = @intCast(i16, obj.x) - @intCast(i16, xStep);
             } else if (obj.direction == go.Direction.Right or obj.direction == go.Direction.UpRight or obj.direction == go.Direction.DownRight) {
-                newX = obj.x + xStep;
+                newX = @intCast(i16, obj.x) + @intCast(i16, xStep);
             }
 
-            obj.x = newX;
-            obj.y = newY;
+            // TODO: ignoreBlocks code for x and again for y.
 
+            // RC. My own hacky code, i think ignoreBlocks will take care of this when implemented and this should be deleted.
+            // Ensure we don't go out of range for u8.
+            if (newX >= 0 and newX <= 255) {
+                obj.x = @intCast(u8, newX);
+            }
+            if (newY >= 0 and newY <= 255) {
+                obj.y = @intCast(u8, newY);
+            }
+
+            // Upon scene obj reaching it's MoveTo destination, set it's respective flag.
             if ((obj.movementFlag == go.MovementFlags.MoveTo) and (obj.x == obj.moveToX) and (obj.y == obj.moveToY)) {
                 obj.direction = go.Direction.Stopped;
                 self.set_flag(obj.flagToSetWhenFinished, true);
                 obj.movementFlag = go.MovementFlags.Normal;
+            }
+
+            if (idx == 1) {
+                clib.DrawCircle(obj.x, obj.y, 5.0, clib.RED);
             }
 
             if (obj.x != obj.oldX or obj.y != obj.oldY) {
@@ -483,27 +520,31 @@ pub const VM = struct {
                     if (idx == 0) {
                         self.write_var(cmds.VM_VARS.BorderTouchEgo.into(), 4);
                     } else {
+                        std.log.info("a.) border touch for obj:{d}", .{idx});
                         self.write_var(cmds.VM_VARS.BorderCode.into(), @intCast(u8, idx));
                         self.write_var(cmds.VM_VARS.BorderTouchObject.into(), 4);
                     }
-                } else if (obj.x + try self.vm_cel_width(obj.viewNo, obj.loop, obj.cel) >= 160) {
+                } else if (obj.x + try self.vm_cel_width(obj.viewNo, obj.loop, obj.cel) >= (160 * 4 * 2)) {
                     if (idx == 0) {
                         self.write_var(cmds.VM_VARS.BorderTouchEgo.into(), 2);
                     } else {
+                        std.log.info("b.) border touch for obj:{d}", .{idx});
                         self.write_var(cmds.VM_VARS.BorderCode.into(), @intCast(u8, idx));
                         self.write_var(cmds.VM_VARS.BorderTouchObject.into(), 2);
                     }
-                } else if (!obj.ignoreHorizon and obj.y <= self.horizon) {
+                } else if (!obj.ignoreHorizon and (obj.y <= (@intCast(i16, self.horizon) * 4))) {
                     if (idx == 0) {
                         self.write_var(cmds.VM_VARS.BorderTouchEgo.into(), 1);
                     } else {
+                        std.log.info("c.) border touch for obj:{d}", .{idx});
                         self.write_var(cmds.VM_VARS.BorderCode.into(), @intCast(u8, idx));
                         self.write_var(cmds.VM_VARS.BorderTouchObject.into(), 1);
                     }
-                } else if (obj.y >= 168) {
+                } else if (obj.y >= (168 * 4)) {
                     if (idx == 0) {
                         self.write_var(cmds.VM_VARS.BorderTouchEgo.into(), 3);
                     } else {
+                        std.log.info("d.) border touch for obj:{d}", .{idx});
                         self.write_var(cmds.VM_VARS.BorderCode.into(), @intCast(u8, idx));
                         self.write_var(cmds.VM_VARS.BorderTouchObject.into(), 3);
                     }
@@ -532,7 +573,7 @@ pub const VM = struct {
             }
 
             if (obj.celCycling) {
-                //std.log.info("view is cycling... v:{d}, l:{d}, c:{d}", .{ obj.viewNo, obj.loop, obj.cel });
+                self.vm_log("view is cycling... v:{d}, l:{d}, c:{d}", .{ obj.viewNo, obj.loop, obj.cel });
                 const celLength = @intCast(u8, self.vm_view_loop_cel_count(obj.viewNo, obj.loop));
                 if (obj.nextCycle == 1) {
                     if (obj.reverseCycle) {
@@ -561,7 +602,11 @@ pub const VM = struct {
                         self.set_flag(obj.flagToSetWhenFinished, true);
                     }
                     obj.nextCycle = obj.cycleTime;
-                } else obj.nextCycle -= 1;
+                } else {
+                    if (obj.nextCycle != 0) {
+                        obj.nextCycle -= 1;
+                    }
+                }
             }
 
             // NOTE: this code is getting there.
@@ -570,6 +615,110 @@ pub const VM = struct {
 
             //std.log.info("larry => \n egoDir => {d}, movementFlag => {s}, dir => {s}", .{ self.read_var(6), obj.movementFlag, obj.direction });
             try self.vm_draw_view(obj.viewNo, obj.loop, obj.cel, @intToFloat(f32, obj.x), @intToFloat(f32, obj.y));
+        }
+    }
+
+    fn checkStep(_: *VM, delta: i32, step: i32) u8 {
+        return if (-step >= delta) @as(u8, 0) else (if (step <= delta) @as(u8, 2) else @as(u8, 1));
+    }
+
+    // Adapted from scummvm
+    // @param  objX  Original x coordinate of the object
+    // @param  objY  Original y coordinate of the object
+    // @param  destX   x coordinate of the object
+    // @param  destY   y coordinate of the object
+    // @param  stepSize   step size
+    fn getDirection(self: *VM, objX: i32, objY: i32, destX: i32, destY: i32, stepSize: u8) go.Direction {
+        const dirTable = [_]u8{ 8, 1, 2, 7, 0, 3, 6, 5, 4 };
+        const result = dirTable[self.checkStep(destX - objX, stepSize) + 3 * self.checkStep(destY - objY, stepSize)];
+        return @intToEnum(go.Direction, result);
+    }
+
+    fn motionWander(self: *VM, obj: *go.GameObject) !void {
+        // TODO beyatch!
+        self.vm_log("TODO: obj is wandering: {any}", .{obj});
+    }
+
+    // Adapted from scummvm implementation which also takes into consideration screen object width/2 to be more precise.
+    fn motionFollowEgo(self: *VM, obj: *go.GameObject) !void {
+        const egoObj = self.gameObjects[0];
+
+        const egoX = egoObj.x;
+        const egoY = egoObj.y;
+
+        const objX = obj.x;
+        const objY = obj.y;
+
+        // Get direction to reach ego
+        const dir = self.getDirection(objX, objY, egoX, egoY, obj.moveToStep);
+
+        // Already at ego coordinates
+        if (dir == go.Direction.Stopped) {
+            obj.direction = go.Direction.Stopped;
+            obj.movementFlag = go.MovementFlags.Normal;
+            self.set_flag(obj.flagToSetWhenFinished, true);
+            return;
+        }
+
+        if (obj.follow_count == 255) {
+            obj.follow_count = 0;
+        }
+
+        // TODO: the else if is important...this block should only run when last iteration we didn't move
+        // due to being stuck!!!!!
+
+        // } else { //if (obj->flags & fDidntMove) {
+        //     // R.C. - this while iteration nonsense is basically periodically selecting
+        //     // a different direction that is NOT Stopped to follow the ego but to keep
+        //     // trying to go in a different direction when obstacles are present.
+        //     // It's a dumb attempt to keep trying to get there.
+
+        //     // while (obj.direction = self.vm_random(8) == 0) {
+        //     // }
+        //     var rndA = self.vm_random(8);
+        //     obj.direction = @intToEnum(go.Direction, rndA);
+        //     std.log.info("a.) direction was set to: {s}", .{obj.direction});
+
+        //     while (rndA == 0) {
+        //         rndA = self.vm_random(8);
+        //         obj.direction = @intToEnum(go.Direction, rndA);
+        //         std.log.info("b.) direction was set to: {s}", .{obj.direction});
+        //     }
+
+        //     const first = try std.math.absInt(@intCast(i32, egoObj.x) - @intCast(i32, obj.x));
+        //     const second = try std.math.absInt(@intCast(i32, egoObj.y) - @intCast(i32, obj.y));
+        //     const d = @divTrunc(first + second, 2);
+
+        //     const smallD = @intCast(u8, d);
+
+        //     if (d < obj.stepSize) {
+        //         obj.follow_count = obj.stepSize;
+        //         return;
+        //     }
+
+        //     // while ((obj->follow_count = self.vm_random(d)) < obj->stepSize) {
+        //     // }
+        //     var rndB = self.vm_random(smallD);
+        //     obj.follow_count = rndB;
+        //     while (rndB < obj.stepSize) {
+        //         rndB = self.vm_random(smallD);
+        //         obj.follow_count = rndB;
+        //     }
+
+        //     return;
+        // }
+
+        if (obj.follow_count != 0) {
+            var k = obj.follow_count;
+            k -= obj.stepSize;
+            obj.follow_count = k;
+
+            if (obj.follow_count < 0) {
+                obj.follow_count = 0;
+            }
+        } else {
+            obj.direction = dir;
+            std.log.info("c.) direction was set to: {s}", .{obj.direction});
         }
     }
 
@@ -619,6 +768,14 @@ pub const VM = struct {
             std.log.warn("NOT FOUND picNo:{d} => {s}", .{ picNo, fmtStr });
             std.os.exit(39);
         }
+    }
+
+    pub fn vm_random(_: *VM, upperBound: u8) u8 {
+        return rand.intRangeAtMost(u8, 0, upperBound);
+    }
+
+    pub fn vm_random_between(_: *VM, lowerBound: u8, upperBound: u8) u8 {
+        return rand.intRangeAtMost(u8, lowerBound, upperBound);
     }
 
     // vm_add_view_to_pic_at draws an ADDED static view to the background buffer (picTex).
@@ -761,7 +918,15 @@ pub const VM = struct {
 
         // PARSE actual VOL PART (after messages extracted)
         // NOTE: I think I should rip out messages section now that it's been parsed, this way the slice is clean and sectioned off.
-        try volPartFbs.seekTo(pos - messageOffset);
+        const startingPosition = pos - messageOffset;
+
+        // When script is executed, if we previously had a "set.scan.start" said for this logic script,
+        // use that offset otherwise use the normal starting position.
+        if (self.vm_logic_stack_get_scanStart(idx)) |val| {
+            try volPartFbs.seekTo(val);
+        } else {
+            try volPartFbs.seekTo(startingPosition);
+        }
 
         // Interpreter local vars
         var orMode: bool = false;
@@ -797,12 +962,26 @@ pub const VM = struct {
             //self.vm_log("opCodeNR => {X:0>2}", .{opCodeNR});
             switch (opCodeNR) {
                 0x00 => {
+                    // Return statement.
                     self.vm_log("{X:0>2} => return", .{opCodeNR});
                     break;
                 },
-                0x91 => self.vm_log("{X:0>2} => set.scan.start", .{opCodeNR}),
-                0x92 => self.vm_log("{X:0>2} => reset.scan.start", .{opCodeNR}),
+                0x91, 0x92 => {
+                    // Note: set.scan.start and reset.scan.start both affect the NEXT time the relevant logic script is executed.
+                    // So basically the next time agi_call occurs and NOT until then. We track this with a vm global var.
+                    if (opCodeNR == 0x91) {
+                        // set.scan.start
+                        // Tells the interpreter to execute at the next bytecode offset of the set.scan.start command.
+                        const myPos = try volPartFbs.getPos();
+                        self.vm_logic_stack_set_scanStart(idx, myPos);
+                    } else {
+                        // reset.scan.start
+                        // Tells the interpreter to start execution of the logic from the start of the logic.
+                        self.vm_logic_stack_reset_scanStart(idx);
+                    }
+                },
                 0xFE => {
+                    // Goto relative jump.
                     const n1: u32 = try volPartFbs.reader().readByte();
                     const n2: u32 = try volPartFbs.reader().readByte();
                     const gotoOffset = (((n2 << 8) | n1) << 16) >> 16;
@@ -811,6 +990,7 @@ pub const VM = struct {
                     try volPartFbs.seekBy(gotoOffset);
                 },
                 0xFF => {
+                    // Marks either the beginning or end of IF conditional.
                     self.vm_log("{X:0>2} => if", .{opCodeNR});
                     if (testMode) {
                         testMode = false;
@@ -851,6 +1031,13 @@ pub const VM = struct {
 
                             var predicateCallResult = false;
                             const predicateFunc = cmds.agi_predicates[opCodeNR - 1];
+
+                            // const lgs = [_]usize{2};
+                            // const ops = [_][]const u8{ "greatern", "greaterv" };
+                            // try self.vm_conditional_breakpoint(lgs[0..], &ops, idx, predicateFunc.name);
+
+                            //try self.vm_conditional_breakpoint(idx, 2, predicateFunc.name);
+
                             errdefer std.log.warn("predicate ERRORED: \"{s}\"", .{predicateFunc.name});
 
                             self.vm_log("agi test (op:{X:0>2}): {s}(args => {d}) here...", .{ opCodeNR - 1, predicateFunc.name, predicateFunc.arity });
@@ -884,6 +1071,10 @@ pub const VM = struct {
                     } else {
                         const statementFunc = cmds.agi_statements[opCodeNR];
 
+                        // const lgs = [_]usize{2};
+                        // const ops = [_][]const u8{ "accept_input", "print_v", "set_scan_start" };
+                        // try self.vm_conditional_breakpoint(lgs[0..], &ops, idx, statementFunc.name);
+
                         // buf for statement args, which gets sliced as needed.
                         var buf: [10]u8 = undefined;
                         var myArgs = &aw.Args.init(&buf);
@@ -895,6 +1086,15 @@ pub const VM = struct {
                         } else if (opCodeNR == 104) {
                             const ctx = aw.Context{ .messageMap = &messageMap };
                             try stmts.agi_display_v_ctx(self, &ctx, try myArgs.eat(&volPartFbs, @intCast(usize, statementFunc.arity)));
+                        } else if (opCodeNR == 101) {
+                            const ctx = aw.Context{ .messageMap = &messageMap };
+                            try stmts.agi_print_ctx(self, &ctx, try myArgs.eat(&volPartFbs, @intCast(usize, statementFunc.arity)));
+                        } else if (opCodeNR == 102) {
+                            const ctx = aw.Context{ .messageMap = &messageMap };
+                            try stmts.agi_print_v_ctx(self, &ctx, try myArgs.eat(&volPartFbs, @intCast(usize, statementFunc.arity)));
+                        } else if (opCodeNR == 118) {
+                            const ctx = aw.Context{ .messageMap = &messageMap };
+                            try stmts.agi_get_num_ctx(self, &ctx, try myArgs.eat(&volPartFbs, @intCast(usize, statementFunc.arity)));
                         } else {
                             try statementFunc.func(self, try myArgs.eat(&volPartFbs, @intCast(usize, statementFunc.arity)));
                         }
@@ -911,17 +1111,53 @@ pub const VM = struct {
         }
     }
 
-    fn vm_breakpoint(self: *VM) !void {
+    // conditional string syntax would be cool with a breakpoint table:
+    // move_obj,program_control,equaln - breaks on any one of of these conditionals or statements.
+    pub fn vm_conditional_breakpoint(
+        self: *VM,
+        logics: []const usize,
+        table: []const []const u8,
+        currentLogic: usize,
+        currentOp: []const u8,
+    ) !void {
+        var logicSet = std.AutoHashMap(i16, void).init(tempAllocator);
+        defer logicSet.deinit();
+
+        for (logics) |logic| {
+            try logicSet.put(@intCast(i16, logic), {});
+        }
+
+        if (logicSet.count() == 0) {
+            try logicSet.put(-1, {});
+        }
+
+        for (table) |line| {
+            var opsIt = std.mem.split(u8, line, ",");
+            while (opsIt.next()) |op| {
+                const stdout = std.io.getStdOut().writer();
+                if (std.mem.eql(u8, currentOp, op) and (logicSet.contains(@intCast(i16, currentLogic)) or logicSet.contains(-1))) {
+                    try stdout.print("(BREAKPOINT HIT on logic: {d}, op: {s}): \n", .{ currentLogic, currentOp });
+                    try self.vm_breakpoint();
+                }
+            }
+        }
+    }
+
+    pub fn vm_breakpoint(self: *VM) !void {
         const stdin = std.io.getStdIn().reader();
         const stdout = std.io.getStdOut().writer();
         try stdout.print("(BREAKPOINT HIT): ", .{});
 
-        var buf: [10]u8 = undefined;
+        var buf: [60]u8 = undefined;
         while (try stdin.readUntilDelimiterOrEof(buf[0..], '\n')) |user_input| {
             if (std.mem.eql(u8, user_input, "c")) {
                 break;
             } else if (std.mem.eql(u8, user_input, "q")) {
                 try stdout.print("Quitting...\n", .{});
+                std.os.exit(0);
+            } else if (std.mem.eql(u8, user_input, "d")) {
+                // TODO: this command represents a dump command....
+                // Make this command dump the instruction pointer and perhaps other crap.
                 std.os.exit(0);
             } else if (std.mem.startsWith(u8, user_input, "v")) {
                 const varIdx = try std.fmt.parseInt(usize, user_input[1..], 10);
@@ -929,13 +1165,30 @@ pub const VM = struct {
             } else if (std.mem.startsWith(u8, user_input, "f")) {
                 const flagIdx = try std.fmt.parseInt(usize, user_input[1..], 10);
                 try stdout.print("flag[{d}] => {s}\n", .{ flagIdx, self.get_flag(flagIdx) });
+            } else if (std.mem.startsWith(u8, user_input, "lastChar=")) {
+                // Hack to simulate lastChar being pressed.
+                const lastCharVal = try std.fmt.parseInt(usize, user_input[9..], 10);
+                self.write_var(cmds.VM_VARS.KeyLastChar.into(), @intCast(u8, lastCharVal));
+                break;
             } else {
                 try stdout.print("??\n", .{});
             }
 
-            try stdout.print("(C:c)ontinue, (Q:q)uit\n", .{});
+            try stdout.print("(C:c)ontinue, (N:n)ext, (D:d)ump, (Q:q)uit\n", .{});
             try stdout.print("> ", .{});
         }
+    }
+
+    pub fn vm_logic_stack_get_scanStart(self: *VM, logicNo: usize) ?u64 {
+        return self.logicScanStartDB[logicNo];
+    }
+
+    pub fn vm_logic_stack_set_scanStart(self: *VM, logicNo: usize, val: u64) void {
+        self.logicScanStartDB[logicNo] = val;
+    }
+
+    pub fn vm_logic_stack_reset_scanStart(self: *VM, logicNo: usize) void {
+        self.logicScanStartDB[logicNo] = null;
     }
 
     pub fn vm_push_logic_stack(self: *VM, logicNo: u8) void {
@@ -943,6 +1196,7 @@ pub const VM = struct {
             std.os.exit(9);
             self.vm_log("OH NO: stack over flow beyatch!", .{});
         }
+
         self.logicStack[self.logicStackPtr] = logicNo;
         self.logicStackPtr += 1;
     }
@@ -969,6 +1223,10 @@ pub const VM = struct {
         }
     }
 
+    pub fn vm_prompt_lastChar(_: *VM) u8 {
+        return prompt.char("lastChar=?") catch unreachable;
+    }
+
     pub fn read_var(self: *VM, varNo: usize) u8 {
         // We intercept reads to the following declared switch to cope with intrinsic vars such as timers.
         // NOTE: should the values below get set, the VM will still do it...but not return the data since this is intercepted on read.
@@ -978,6 +1236,19 @@ pub const VM = struct {
                 cmds.VM_VARS.Minutes => return self.vmTimer.mins(),
                 cmds.VM_VARS.Hours => return self.vmTimer.hrs(),
                 cmds.VM_VARS.Days => return self.vmTimer.days(),
+                // cmds.VM_VARS.KeyLastChar => {
+                //     // Total HACK! Remove this code...it's a temporary work around to intercept lastChar key
+                //     // primarily to get passed the AGE/Test.
+                //     const val = self.vars[cmds.VM_VARS.KeyLastChar.into()];
+                //     if (val == 0) {
+                //         // Only ask for the value when not zero.
+                //         const promptedVal = self.vm_prompt_lastChar();
+                //         self.write_var(cmds.VM_VARS.KeyLastChar.into(), promptedVal);
+                //         return promptedVal;
+                //     } else {
+                //         return val;
+                //     }
+                // },
                 else => return self.vars[varNo],
             }
         }

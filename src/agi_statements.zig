@@ -5,6 +5,7 @@ const aw = @import("args.zig");
 const go = @import("game_object.zig");
 const rm = @import("resource_manager.zig");
 const hlp = @import("raylib_helpers.zig");
+const pmpt = @import("prompt.zig");
 
 const clib = @import("c_defs.zig").c;
 
@@ -32,8 +33,16 @@ pub fn agi_unimplemented(_: *vm.VM, args: *aw.Args) anyerror!void {
 
 pub fn agi_new_room(self: *vm.VM, args: *aw.Args) anyerror!void {
     const roomNo = args.get.a();
-    self.newroom = roomNo;
-    self.vm_log("NEW_ROOM {d}", .{roomNo});
+
+    if (roomNo == 6) {
+        self.newroom = 11;
+        // Room 6 = Age Test (boring)
+        // Room 11 = Outside bar.
+        std.log.info("INTERCEPTED NEW_ROOM OF {d} -> {d}", .{ roomNo, 11 });
+    } else {
+        self.newroom = roomNo;
+        self.vm_log("NEW_ROOM {d}", .{roomNo});
+    }
 }
 
 pub fn agi_new_room_v(self: *vm.VM, args: *aw.Args) anyerror!void {
@@ -64,7 +73,14 @@ pub fn agi_assignv(self: *vm.VM, args: *aw.Args) anyerror!void {
 }
 
 pub fn agi_call(self: *vm.VM, args: *aw.Args) anyerror!void {
-    const logicNo = args.get.a();
+    var logicNo = args.get.a();
+
+    // Hack to jump to rm11
+    // NOTE: these hacky jumps don't seem to work at the moment.
+    // if (logicNo == 1) {
+    //     logicNo = 11;
+    // }
+
     self.vm_log("api_call({d})...", .{logicNo});
 
     self.vm_push_logic_stack(self.activeLogicNo);
@@ -111,13 +127,18 @@ pub fn agi_quit(self: *vm.VM, args: *aw.Args) anyerror!void {
     std.os.exit(statusCode);
 }
 
-pub fn agi_load_logic(self: *vm.VM, logNo: usize) anyerror!void {
+pub fn agi_load_logic(self: *vm.VM, args: *aw.Args) anyerror!void {
+    const logNo = args.get.a();
     self.vm_log("agi_load_logic({s}, {d}", .{ self, logNo });
     //self.loadedLogics[logNo] = new LogicParser(this, logNo);
 }
 
-pub fn agi_load_logic_v(self: *vm.VM, varNo: u8) anyerror!void {
-    self.agi_load_logic(self.read_var(varNo));
+pub fn agi_load_logic_v(self: *vm.VM, args: *aw.Args) anyerror!void {
+    const varNo = args.get.a();
+
+    args.set.a(self.read_var(varNo));
+
+    try agi_load_logic(self, args.pack());
 }
 
 pub fn agi_increment(self: *vm.VM, args: *aw.Args) anyerror!void {
@@ -261,8 +282,31 @@ pub fn agi_unanimate_all(self: *vm.VM) anyerror!void {
     }
 }
 
-pub fn agi_stop_update(self: *vm.VM, objNo: u8) anyerror!void {
+pub fn agi_stop_update(self: *vm.VM, args: *aw.Args) anyerror!void {
+    const objNo = args.get.a();
+
     self.gameObjects[objNo].update = false;
+}
+
+pub fn agi_stop_motion(self: *vm.VM, args: *aw.Args) anyerror!void {
+    const objNo = args.get.a();
+
+    if (objNo == 0) {
+        //self.agi_program_control();
+    }
+
+    self.gameObjects[objNo].motion = false;
+    self.gameObjects[objNo].direction = go.Direction.Stopped;
+}
+
+pub fn agi_start_motion(self: *vm.VM, args: *aw.Args) anyerror!void {
+    const objNo = args.get.a();
+
+    if (objNo == 0) {
+        //self.agi_player_control();
+    }
+
+    self.gameObjects[objNo].motion = true;
 }
 
 pub fn agi_animate_obj(self: *vm.VM, args: *aw.Args) anyerror!void {
@@ -310,6 +354,11 @@ pub fn agi_observe_blocks(self: *vm.VM, args: *aw.Args) anyerror!void {
     self.gameObjects[objNo].ignoreBlocks = false;
 }
 
+pub fn agi_ignore_blocks(self: *vm.VM, args: *aw.Args) anyerror!void {
+    const objNo = args.get.a();
+    self.gameObjects[objNo].ignoreBlocks = true;
+}
+
 pub fn agi_observe_objs(self: *vm.VM, args: *aw.Args) anyerror!void {
     const objNo = args.get.a();
     self.gameObjects[objNo].ignoreObjs = false;
@@ -323,6 +372,11 @@ pub fn agi_ignore_objs(self: *vm.VM, args: *aw.Args) anyerror!void {
 pub fn agi_observe_horizon(self: *vm.VM, args: *aw.Args) anyerror!void {
     const objNo = args.get.a();
     self.gameObjects[objNo].ignoreHorizon = false;
+}
+
+pub fn agi_ignore_horizon(self: *vm.VM, args: *aw.Args) anyerror!void {
+    const objNo = args.get.a();
+    self.gameObjects[objNo].ignoreHorizon = true;
 }
 
 pub fn agi_lindirectn(self: *vm.VM, args: *aw.Args) anyerror!void {
@@ -468,7 +522,7 @@ pub fn agi_draw_pic(self: *vm.VM, args: *aw.Args) anyerror!void {
     // this.visualBuffer.clear(0x0F);
     // this.priorityBuffer.clear(0x04);
     try agi_overlay_pic(self, varNo);
-    self.vm_log("agi_draw_pic({d})", .{varNo});
+    std.log.info("agi_draw_pic({d})", .{varNo});
 }
 
 pub fn agi_overlay_pic(self: *vm.VM, varNo: u8) anyerror!void {
@@ -574,7 +628,7 @@ pub fn agi_position_v(self: *vm.VM, args: *aw.Args) anyerror!void {
     args.set.b(self.read_var(varNo1));
     args.set.c(self.read_var(varNo2));
 
-    self.agi_position(args.pack());
+    try agi_position(self, args.pack());
 }
 
 fn agi_set_dir(self: *vm.VM, objNo: u8, varNo: u8) anyerror!void {
@@ -677,6 +731,24 @@ pub fn agi_move_obj(self: *vm.VM, args: *aw.Args) anyerror!void {
     obj.flagToSetWhenFinished = flagNo;
 }
 
+pub fn agi_distance(self: *vm.VM, args: *aw.Args) anyerror!void {
+    const obj1 = args.get.a();
+    const obj2 = args.get.b();
+    const varNo = args.get.c();
+
+    var ob1 = &self.gameObjects[obj1];
+    var ob2 = &self.gameObjects[obj2];
+
+    if (ob1.draw and ob2.draw) {
+        const first = try std.math.absInt(@intCast(i32, ob1.x - ob2.x));
+        const second = try std.math.absInt(@intCast(i32, ob1.y - ob2.y));
+        const result = first + second;
+        self.write_var(varNo, @intCast(u8, result));
+    } else {
+        self.write_var(varNo, 255);
+    }
+}
+
 pub fn agi_display(_: *vm.VM, args: *aw.Args) anyerror!void {
     const row = args.get.a();
     const col = args.get.b();
@@ -740,6 +812,21 @@ pub fn agi_display_v_ctx(self: *vm.VM, ctx: *const aw.Context, args: *aw.Args) a
     try agi_display_ctx(self, ctx, args.pack());
 }
 
+pub fn agi_print_ctx(_: *vm.VM, ctx: *const aw.Context, args: *aw.Args) anyerror!void {
+    const msgNo = args.get.a();
+    const msg = ctx.messageMap.get(@intCast(usize, msgNo)).?;
+
+    std.log.info("print_ctx msgNo:{d} and message: \n{s}", .{ msgNo, msg });
+}
+
+pub fn agi_print_v_ctx(self: *vm.VM, ctx: *const aw.Context, args: *aw.Args) anyerror!void {
+    const varNo = args.get.a();
+
+    args.set.a(self.read_var(varNo));
+
+    try agi_print_ctx(self, ctx, args.pack());
+}
+
 pub fn agi_fix_loop(self: *vm.VM, args: *aw.Args) anyerror!void {
     const objNo = args.get.a();
     self.gameObjects[objNo].fixedLoop = true;
@@ -757,6 +844,8 @@ pub fn agi_erase(self: *vm.VM, args: *aw.Args) anyerror!void {
     obj.draw = false;
     obj.loop = 0;
     obj.cel = 0;
+
+    std.log.info("erase invoked for objNo: {d}", .{objNo});
     //this.screen.clearView(obj.oldView, obj.oldLoop, obj.oldCel, obj.oldDrawX, obj.oldDrawY, obj.oldPriority);
 }
 
@@ -777,19 +866,47 @@ pub fn agi_reposition_to_v(self: *vm.VM, args: *aw.Args) anyerror!void {
     try agi_reposition_to(self, args.pack());
 }
 
-pub fn agi_follow_ego(self: *vm.VM, objNo: u8, stepSpeed: u8, flagNo: u8) anyerror!void {
+pub fn agi_follow_ego(self: *vm.VM, args: *aw.Args) anyerror!void {
+    const objNo = args.get.a();
+    const stepSpeed = args.get.b();
+    const flagNo = args.get.c();
+
     var obj = &self.gameObjects[objNo];
     obj.moveToStep = stepSpeed;
     obj.flagToSetWhenFinished = flagNo;
     obj.movementFlag = go.MovementFlags.ChaseEgo;
 }
 
-pub fn agi_wander(self: *vm.VM, objNo: u8) anyerror!void {
+pub fn agi_wander(self: *vm.VM, args: *aw.Args) anyerror!void {
+    const objNo = args.get.a();
+
     self.gameObjects[objNo].movementFlag = go.MovementFlags.Wander;
-    self.gameObjects[objNo].direction = 5; // TODO: this.randomBetween(1, 9);
+    self.gameObjects[objNo].direction = go.Direction.UpRight; // TODO: this.randomBetween(1, 9);
 
     if (objNo == 0) {
-        self.write_var(6, self.gameObjects[objNo].direction);
-        self.agi_program_control();
+        //self.write_var(6, self.gameObjects[objNo].direction);
+        //self.agi_program_control();
     }
+}
+
+pub fn agi_random(self: *vm.VM, args: *aw.Args) anyerror!void {
+    const start = args.get.a();
+    const end = args.get.b();
+    const varNo = args.get.c();
+
+    self.write_var(varNo, self.vm_random_between(start, end));
+}
+
+pub fn agi_get_num_ctx(self: *vm.VM, ctx: *const aw.Context, args: *aw.Args) anyerror!void {
+    const msgNo = args.get.a();
+    const varNo = args.get.b();
+
+    // TODO: for now, just prompt the message on the command line and read in a value into the variable.
+    const msg = ctx.messageMap.get(@intCast(usize, msgNo)).?;
+    std.log.info("> {s}", .{msg});
+    const userNumber = try pmpt.number();
+
+    std.log.info("user entered: '{d}'", .{userNumber});
+
+    self.write_var(varNo, @intCast(u8, userNumber));
 }

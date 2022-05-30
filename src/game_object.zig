@@ -51,6 +51,10 @@ pub const GameObject = struct {
     moveToStep: u8,
 
     movementFlag: MovementFlags, // = MovementFlags.Normal;
+
+    follow_count: u8 = 0,
+    wander_count: u8 = 0,
+
     // allowedSurface: number = 0;
     update: bool,
     // reverseLoop: boolean = false;

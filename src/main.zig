@@ -27,6 +27,7 @@ const playAudio = false;
 //  * TODO: come up with a schema breakpoint catcher for when a var or flag wants to be monitored like: v60-r (whenever var 60 is read) or v60-w (whenever written) or both: v60-rw
 
 // Logic:
+//  * BUG PRIORITY: IMPLEMENT lessn/lessv
 //  * This -> [ indicates a line comment in original source.
 //  * if (initLog) {} means "initial logic" or constructor code for a logic room.
 //  * some rooms, like room 0, have their initLog defined in a separate file: RM50.cg
@@ -39,10 +40,14 @@ const playAudio = false;
 //      [*****
 //  * I need a mechanism to update the internal game clock which is held by VARS 11(seconds),12(min),13(hrs),14(days)
 //    * Idea: just use a dedicated thread bumping atomic vars. Then, when reading a var if it's (11,12,13,14) just read the atomic vars directly.
+//  * In terms of Said() based words: 0 - words ignored (the, at, etc), 1 - anyword, 9999 - ROL (Rest of Line) - it doesn't matter whatever is else is said.
 
 // Views:
 //  * Extracted format is: 40_0_1.png aka: {viewNo}_{loop}_{cell}.png.
 //  * Original screen dimensions: 320x200
+
+// Events/Controllers/Input
+//  * VM_VARS.KeyLastChar(19) needs to read a key and get set at the correct point in time of the VM cycle in order for the game to read lastChar variable.
 
 // Raylib drawing:
 //  * Using the Image api is slow and not recommended with raylib when it comes to frame/by/frame or speed.

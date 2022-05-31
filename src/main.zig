@@ -20,11 +20,22 @@ const playAudio = false;
 
 // NOTES:
 
+// TODO: Going to have to re-think the dimensions width/height.
+// TODO: the problem is there are system variables that use the original dimensions...so we will have a problem
+// Some of this code will do things like: if(egoY > BOTTOM) { ... }
+
+// Window Scaling/Texture match
+// * https://www.reddit.com/r/raylib/comments/9rqi1c/shrinking_and_upscaling_canvas/
+// * https://gist.github.com/JeffM2501/00cf5653f41337d8c9e8db40deb25656
+
 // VM Runtime
 //  * Interpret runs at 1/20th of a second * var[10] (time delay)...
 
 // Debugger
 //  * TODO: come up with a schema breakpoint catcher for when a var or flag wants to be monitored like: v60-r (whenever var 60 is read) or v60-w (whenever written) or both: v60-rw
+
+// UI
+//  * Look into Raylib GUI library for windows/textbox inputs, etc. WHY RE-INVENT THE WHEEL?
 
 // Logic:
 //  * BUG PRIORITY: IMPLEMENT lessn/lessv
@@ -60,15 +71,17 @@ const playAudio = false;
 //  * NOTE: One user commented to try and increase the buffer size!!!
 
 var vmInstance = agi_vm.VM.init(false);
+var shakeScreenTimer: f32 = 10;
 
 // Adapted from: https://github.com/r1sc/agi.js/blob/master/Interpreter.ts
 
 pub fn main() anyerror!void {
     defer arena.deinit();
 
-    c.SetConfigFlags(c.FLAG_VSYNC_HINT);
+    c.SetConfigFlags(c.FLAG_VSYNC_HINT | c.FLAG_WINDOW_RESIZABLE);
     // Remember: these dimensions are the ExtractAGI upscaled size!!!
-    c.InitWindow(1280 + 245, 730, "AGI Interpreter - @deckarep");
+    c.InitWindow(320 + 245, 168 + 50, "AGI Interpreter - @deckarep");
+    c.SetWindowMinSize(320 + 245, 168 + 50);
     c.InitAudioDevice();
     c.SetTargetFPS(60);
     defer c.CloseWindow();
@@ -102,8 +115,28 @@ pub fn main() anyerror!void {
 
         //try testing();
 
-        try vmInstance.vm_cycle();
+        // Screen Shake code lifted from my other game.
+        // c.rlPushMatrix();
+        // const howMuch = (1.0 * shakeScreenTimer) * hlp.someOne();
+        // c.rlTranslatef(howMuch * rand.float(f32), howMuch * rand.float(f32), 0.0);
+
+        // DO WORK IN HERE.
+
+        // defer if (shakeScreenTimer > 0.0) c.rlPopMatrix();
+
+        {
+            c.rlPushMatrix();
+            defer c.rlPopMatrix();
+            const scale: f32 = 1.0;
+            c.rlScalef(scale, scale, 1.0);
+            try vmInstance.vm_cycle();
+        }
+
         renderDebugInfo();
+
+        // if (shakeScreenTimer > 0) {
+        //     shakeScreenTimer -= 0.01;
+        // }
 
         // TODO: factor in the var[10] which is the speed setting.
         std.time.sleep(70 * std.time.ns_per_ms);

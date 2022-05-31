@@ -41,8 +41,10 @@ pub const TOTAL_GAME_OBJS: usize = 16;
 const LOGIC_STACK_SIZE: usize = 255; // Arbitrary size has been chosen of 255, I don't expect to exceed it with tech from 1980s.
 const DIR_INDEX_SIZE: usize = 300;
 
-const vm_width = 1280;
-const vm_height = 672;
+// NOTE: This is the legit ORIGINAL and TRUE width/height because x-axis has double the pixels: 320 / 2 = 160.
+const vm_width = 320;
+const vm_height = 168;
+const vm_ratio: f32 = vm_width / vm_height;
 
 var agiFileList: [7][]const u8 = undefined;
 
@@ -200,7 +202,7 @@ pub const VM = struct {
 
     pub fn vm_start(self: *VM) !void {
         // Initialize our picTex
-        self.picTex = clib.LoadRenderTexture(1280, 672);
+        self.picTex = clib.LoadRenderTexture(vm_width, vm_height);
 
         // TODO: perhaps dependency inject the timer into the vmInstance before calling start.
         // TODO: tune the Timer such that it's roughly accurate 1/20hz
@@ -315,7 +317,7 @@ pub const VM = struct {
             self.vm_draw_background();
 
             // draw horizon (debug)
-            clib.DrawLineEx(hlp.vec2(0, @intToFloat(f32, self.horizon)), hlp.vec2(160, @intToFloat(f32, self.horizon)), 2.0, clib.YELLOW);
+            clib.DrawLineEx(hlp.vec2(0, @intToFloat(f32, self.horizon)), hlp.vec2(vm_width, @intToFloat(f32, self.horizon)), 2.0, clib.YELLOW);
 
             // draw scene objects (sprites)
             var i: usize = 0;
@@ -757,8 +759,8 @@ pub const VM = struct {
             // Scaling comes from the fact that these assets were upscaled by a factor of 4 with an additional *2 for the x-axis.
             // Additionally, the assets y-origin should is their bottom, so we substract the view height for the y-axis.
             // https://github.com/barryharmsen/ExtractAGI/blob/master/export_view.py
-            const scaledX = x * 2 * 4;
-            const scaledY = (y * 4) - @intToFloat(f32, txt.height);
+            const scaledX = x * 2; // * 2 * 4;
+            const scaledY = y - @intToFloat(f32, txt.height); //(y * 4) - @intToFloat(f32, txt.height);
 
             clib.DrawTexturePro(txt, hlp.rect(0, 0, @intToFloat(f32, txt.width), @intToFloat(f32, txt.height)), hlp.rect(scaledX, scaledY, @intToFloat(f32, txt.width), @intToFloat(f32, txt.height)), hlp.vec2(0, 0), 0, clib.WHITE);
         } else {
@@ -811,8 +813,8 @@ pub const VM = struct {
             // Scaling comes from the fact that these assets were upscaled by a factor of 4 with an additional *2 for the x-axis.
             // Additionally, the assets y-origin should is their bottom, so we substract the view height for the y-axis.
             // https://github.com/barryharmsen/ExtractAGI/blob/master/export_view.py
-            const scaledX = @intToFloat(f32, @intCast(u16, x) * 2 * 4);
-            const scaledY = @intToFloat(f32, @intCast(u16, y) * 4) - @intToFloat(f32, txt.height);
+            const scaledX = @intToFloat(f32, @intCast(u16, x) * 2); //@intToFloat(f32, @intCast(u16, x) * 2 * 4);
+            const scaledY = @intToFloat(f32, @intCast(u16, y)) - @intToFloat(f32, txt.height); //@intToFloat(f32, @intCast(u16, y) * 4) - @intToFloat(f32, txt.height);
 
             clib.DrawTexturePro(txt, hlp.rect(0, 0, @intToFloat(f32, txt.width), @intToFloat(f32, txt.height)), hlp.rect(scaledX, scaledY, @intToFloat(f32, txt.width), @intToFloat(f32, txt.height)), hlp.vec2(0, 0), 0, clib.WHITE);
             clib.DrawRectangleLines(@floatToInt(c_int, scaledX), @floatToInt(c_int, scaledY), txt.width, txt.height, clib.RED);
@@ -824,13 +826,16 @@ pub const VM = struct {
 
     // vm_draw_background blits the entire pic+static views (added to pic) to the screen.
     pub fn vm_draw_background(self: *VM) void {
-        const swirlShader = self.resMan.ref_shader(rm.WithKey(rm.ResourceTag.Shader, pathShaders ++ "wave.fs"));
-        if (swirlShader) |sh| {
-            clib.BeginShaderMode(sh);
+        if (false) {
+            // Disabling for now.
+            const swirlShader = self.resMan.ref_shader(rm.WithKey(rm.ResourceTag.Shader, pathShaders ++ "wave.fs"));
+            if (swirlShader) |sh| {
+                clib.BeginShaderMode(sh);
+            }
+            defer if (swirlShader) |_| {
+                clib.EndShaderMode();
+            };
         }
-        defer if (swirlShader) |_| {
-            clib.EndShaderMode();
-        };
 
         clib.DrawTextureRec(self.picTex.texture, hlp.rect(0, 0, @intToFloat(f32, self.picTex.texture.width), @intToFloat(f32, -self.picTex.texture.height)), hlp.vec2(0, 0), clib.WHITE);
     }

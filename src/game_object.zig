@@ -1,6 +1,21 @@
 pub const MovementFlags = enum { Normal, ChaseEgo, Wander, MoveTo };
 
-pub const Direction = enum(u8) { Stopped = 0, Up = 1, UpRight = 2, Right = 3, DownRight = 4, Down = 5, DownLeft = 6, Left = 7, UpLeft = 8 };
+pub const Direction = enum(u8) {
+    Stopped = 0,
+    Up = 1,
+    UpRight = 2,
+    Right = 3,
+    DownRight = 4,
+    Down = 5,
+    DownLeft = 6,
+    Left = 7,
+    UpLeft = 8,
+
+    pub fn into(dir: Direction) u8 {
+        const val = @enumToInt(dir);
+        return val;
+    }
+};
 
 // Bit flags from Scummvm
 // enum ViewFlags {

@@ -260,9 +260,28 @@ pub const VM = struct {
         self.set_flag(cmds.VM_FLAGS.EnteredCli.into(), false); // The player has entered a command
         self.set_flag(cmds.VM_FLAGS.SaidAcceptedInput.into(), false); // said accepted user input
 
-        var egoObj = &self.gameObjects[0];
+        if (self.allowInput) {
+            const charPressed = clib.GetKeyPressed();
+            switch (charPressed) {
+                clib.KEY_RIGHT => {
+                    self.vm_set_ego_dir(go.Direction.Right.into());
+                },
+                clib.KEY_LEFT => {
+                    self.vm_set_ego_dir(go.Direction.Left.into());
+                },
+                clib.KEY_UP => {
+                    self.vm_set_ego_dir(go.Direction.Up.into());
+                },
+                clib.KEY_DOWN => {
+                    self.vm_set_ego_dir(go.Direction.Down.into());
+                },
+                else => {},
+            }
+        }
 
+        var egoObj = &self.gameObjects[0];
         var egoDir = self.read_var(6);
+
         // NOTE: re: self.programControl in other implementations (scummvm, nagi) the boolean flag tracked is playerControl so it's OPPOSITE!!!!
         if (self.programControl) {
             self.write_var(cmds.VM_VARS.EgoDirection.into(), @enumToInt(egoObj.direction));
@@ -280,7 +299,7 @@ pub const VM = struct {
                 // But we only have to do this in a few spots and I will go back and clean this up.
                 var buf: [1]u8 = undefined;
                 var myArgs = &aw.Args.init(&buf);
-                myArgs.set.a(0); // Trying to directly load room 11...but this should always be 0.
+                myArgs.set.a(0);
                 try stmts.agi_call(self, myArgs);
             }
 

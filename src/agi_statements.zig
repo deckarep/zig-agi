@@ -75,12 +75,6 @@ pub fn agi_assignv(self: *vm.VM, args: *aw.Args) anyerror!void {
 pub fn agi_call(self: *vm.VM, args: *aw.Args) anyerror!void {
     var logicNo = args.get.a();
 
-    // Hack to jump to rm11
-    // NOTE: these hacky jumps don't seem to work at the moment.
-    // if (logicNo == 1) {
-    //     logicNo = 11;
-    // }
-
     self.vm_log("api_call({d})...", .{logicNo});
 
     self.vm_push_logic_stack(self.activeLogicNo);
@@ -292,7 +286,7 @@ pub fn agi_stop_motion(self: *vm.VM, args: *aw.Args) anyerror!void {
     const objNo = args.get.a();
 
     if (objNo == 0) {
-        //self.agi_program_control();
+        try agi_program_control(self, args);
     }
 
     self.gameObjects[objNo].motion = false;
@@ -303,7 +297,7 @@ pub fn agi_start_motion(self: *vm.VM, args: *aw.Args) anyerror!void {
     const objNo = args.get.a();
 
     if (objNo == 0) {
-        //self.agi_player_control();
+        try agi_player_control(self, args);
     }
 
     self.gameObjects[objNo].motion = true;
@@ -701,6 +695,12 @@ pub fn agi_currentview(self: *vm.VM, args: *aw.Args) anyerror!void {
     const objNo = args.get.a();
     const varNo = args.get.b();
     self.write_var(varNo, self.gameObjects[objNo].viewNo);
+}
+
+pub fn agi_current_cel(self: *vm.VM, args: *aw.Args) anyerror!void {
+    const objNo = args.get.a();
+    const varNo = args.get.b();
+    self.write_var(varNo, self.gameObjects[objNo].cel);
 }
 
 pub fn agi_player_control(self: *vm.VM, _: *aw.Args) anyerror!void {

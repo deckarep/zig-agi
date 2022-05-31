@@ -82,7 +82,7 @@ pub fn agi_test_have_key(_: *vm.VM, _: *aw.Args) anyerror!bool {
     // var hk = self.haveKey;
     // self.haveKey = false;
     // return hk;
-    // TODO: put code back from above...this simulates a key was pressed as true.
+    // TODO: HACK: to skip intro for now, put code back from above...this simulates a key was pressed as true.
     return true;
 }
 
@@ -118,4 +118,8 @@ pub fn agi_posn(self: *vm.VM, args: *aw.Args) anyerror!bool {
 
     const obj = &self.gameObjects[objNo];
     return x1 <= obj.x and obj.x <= x2 and y1 <= obj.y and obj.y <= y2;
+}
+
+pub fn agi_obj_in_room(_: *vm.VM, _: *aw.Args) anyerror!bool {
+    return false;
 }

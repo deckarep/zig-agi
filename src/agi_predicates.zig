@@ -116,7 +116,7 @@ pub fn agi_posn(self: *vm.VM, args: *aw.Args) anyerror!bool {
     const x2 = args.get.d();
     const y2 = args.get.e();
 
-    const obj = &self.gameObjects[objNo];
+    const obj = &self.state.gameObjects[objNo];
     return x1 <= obj.x and obj.x <= x2 and y1 <= obj.y and obj.y <= y2;
 }
 

@@ -9,6 +9,9 @@ const timer = @import("sys_timers.zig");
 const rm = @import("resource_manager.zig");
 const aw = @import("args.zig");
 
+const vms = @import("vm_state.zig");
+const lcc = @import("logic_control_opcode.zig").LogicControlOpCode;
+
 const assert = std.debug.assert;
 const ArrayList = std.ArrayList;
 
@@ -30,13 +33,6 @@ pub const sampleTexture = pathTextures ++ "43_0_0.png";
 const pathShaders = "resources/shaders/glsl" ++ GLSL_VERSION_STRING ++ "/";
 
 const messageDecryptKey = "Avis Durgan";
-
-const TOTAL_VARS: usize = 256;
-const TOTAL_FLAGS: usize = 256;
-const TOTAL_CONTROLLERS: usize = 256;
-
-// also called screen objs.
-pub const TOTAL_GAME_OBJS: usize = 16;
 
 const LOGIC_STACK_SIZE: usize = 255; // Arbitrary size has been chosen of 255, I don't expect to exceed it with tech from 1980s.
 const DIR_INDEX_SIZE: usize = 300;
@@ -134,9 +130,8 @@ pub const VM = struct {
     allowInput: bool,
     haveKey: bool,
     programControl: bool,
-    vars: [TOTAL_VARS]u8,
-    flags: [TOTAL_FLAGS]bool,
-    gameObjects: [TOTAL_GAME_OBJS]go.GameObject,
+
+    state: vms.VMState = vms.VMState.init(),
 
     logicScanStartDB: [100]?u64 = std.mem.zeroes([100]?u64),
     logicStack: [LOGIC_STACK_SIZE]u8,
@@ -159,7 +154,28 @@ pub const VM = struct {
 
     // init creates a new instance of an AGI VM.
     pub fn init(debugState: bool) VM {
-        var myVM = VM{ .picTex = undefined, .debug = debugState, .resMan = undefined, .viewDB = std.mem.zeroes([1000][20]u8), .vmTimer = undefined, .logicIndex = undefined, .picIndex = undefined, .viewIndex = undefined, .logicStack = std.mem.zeroes([LOGIC_STACK_SIZE]u8), .logicStackPtr = 0, .activeLogicNo = 0, .blockX1 = 0, .blockX2 = 0, .blockY1 = 0, .blockY2 = 0, .newroom = 0, .horizon = 0, .allowInput = false, .haveKey = false, .programControl = false, .vars = std.mem.zeroes([TOTAL_VARS]u8), .flags = std.mem.zeroes([TOTAL_FLAGS]bool), .gameObjects = std.mem.zeroes([TOTAL_GAME_OBJS]go.GameObject) };
+        var myVM = VM{
+            .picTex = undefined,
+            .debug = debugState,
+            .resMan = undefined,
+            .viewDB = std.mem.zeroes([1000][20]u8),
+            .vmTimer = undefined,
+            .logicIndex = undefined,
+            .picIndex = undefined,
+            .viewIndex = undefined,
+            .logicStack = std.mem.zeroes([LOGIC_STACK_SIZE]u8),
+            .logicStackPtr = 0,
+            .activeLogicNo = 0,
+            .blockX1 = 0,
+            .blockX2 = 0,
+            .blockY1 = 0,
+            .blockY2 = 0,
+            .newroom = 0,
+            .horizon = 0,
+            .allowInput = false,
+            .haveKey = false,
+            .programControl = false,
+        };
         return myVM;
     }
 
@@ -243,8 +259,9 @@ pub const VM = struct {
     }
 
     pub fn vm_reset(self: *VM) void {
-        // TODO: reset all VM state.
-        self.vm_log("reset_vm invoked with: {s}", .{self});
+        // TODO: reset all VM state and ensure all of this works.
+        // What else do i need to do? Clear screens, sprites, memory?
+        self.state.reset();
     }
 
     fn vm_set_ego_dir(self: *VM, newEgoDir: u8) void {
@@ -286,7 +303,7 @@ pub const VM = struct {
             }
         }
 
-        var egoObj = &self.gameObjects[0];
+        var egoObj = &self.state.gameObjects[0];
         var egoDir = self.read_var(6);
 
         // NOTE: re: self.programControl in other implementations (scummvm, nagi) the boolean flag tracked is playerControl so it's OPPOSITE!!!!
@@ -321,9 +338,9 @@ pub const VM = struct {
 
             // Second, draw scene objects (sprites)
             var i: usize = 0;
-            while (i < self.gameObjects.len) : (i += 1) {
-                const objIdx = (self.gameObjects.len - 1) - i;
-                var obj = &self.gameObjects[objIdx];
+            while (i < self.state.gameObjects.len) : (i += 1) {
+                const objIdx = (self.state.gameObjects.len - 1) - i;
+                var obj = &self.state.gameObjects[objIdx];
                 if (obj.update) {
                     if (obj == egoObj) {
                         obj.direction = @intToEnum(go.Direction, egoDir);
@@ -412,15 +429,15 @@ pub const VM = struct {
                 self.write_var(cmds.VM_VARS.BorderCode.into(), 0);
                 self.write_var(cmds.VM_VARS.BorderTouchObject.into(), 0);
                 self.write_var(cmds.VM_VARS.WordNotFound.into(), 0);
-                self.write_var(cmds.VM_VARS.EgoViewResource.into(), self.gameObjects[0].viewNo);
+                self.write_var(cmds.VM_VARS.EgoViewResource.into(), self.state.gameObjects[0].viewNo);
 
                 switch (self.read_var(cmds.VM_VARS.BorderTouchEgo.into())) {
                     0 => {}, // Touched nothing.
                     // Top edge or horizon
-                    1 => self.gameObjects[0].y = 168,
-                    2 => self.gameObjects[0].x = 1,
-                    3 => self.gameObjects[0].y = self.horizon,
-                    4 => self.gameObjects[0].x = 160,
+                    1 => self.state.gameObjects[0].y = 168,
+                    2 => self.state.gameObjects[0].x = 1,
+                    3 => self.state.gameObjects[0].y = self.horizon,
+                    4 => self.state.gameObjects[0].x = 160,
                     else => {},
                 }
 
@@ -657,7 +674,7 @@ pub const VM = struct {
 
     // Adapted from scummvm implementation which also takes into consideration screen object width/2 to be more precise.
     fn motionFollowEgo(self: *VM, obj: *go.GameObject) !void {
-        const egoObj = self.gameObjects[0];
+        const egoObj = self.state.gameObjects[0];
 
         const egoX = egoObj.x;
         const egoY = egoObj.y;
@@ -758,7 +775,7 @@ pub const VM = struct {
             const scaledY = y - @intToFloat(f32, txt.height); //(y * 4) - @intToFloat(f32, txt.height);
 
             // HACK: for the ego, if direction is left-based swap the sprite's x-axis.
-            var mirrorDir: f32 = if (objIdx == 0 and self.gameObjects[objIdx].direction == go.Direction.Left) -1.0 else 1.0;
+            var mirrorDir: f32 = if (objIdx == 0 and self.state.gameObjects[objIdx].direction == go.Direction.Left) -1.0 else 1.0;
 
             clib.DrawTexturePro(txt, hlp.rect(0, 0, mirrorDir * @intToFloat(f32, txt.width), @intToFloat(f32, txt.height)), hlp.rect(scaledX, scaledY, @intToFloat(f32, txt.width), @intToFloat(f32, txt.height)), hlp.vec2(0, 0), 0, clib.WHITE);
         } else {
@@ -983,15 +1000,15 @@ pub const VM = struct {
 
             //self.vm_log("opCodeNR => {X:0>2}", .{opCodeNR});
             switch (opCodeNR) {
-                0x00 => {
+                lcc.Return.into() => {
                     // Return statement.
                     self.vm_log("{X:0>2} => return", .{opCodeNR});
                     break;
                 },
-                0x91, 0x92 => {
+                lcc.SetScan.into(), lcc.ResetScan.into() => {
                     // Note: set.scan.start and reset.scan.start both affect the NEXT time the relevant logic script is executed.
                     // So basically the next time agi_call occurs and NOT until then. We track this with a vm global var.
-                    if (opCodeNR == 0x91) {
+                    if (opCodeNR == lcc.SetScan.into()) {
                         // set.scan.start
                         // Tells the interpreter to execute at the next bytecode offset of the set.scan.start command.
                         const myPos = try volPartFbs.getPos();
@@ -1002,7 +1019,7 @@ pub const VM = struct {
                         self.vm_logic_stack_reset_scanStart(idx);
                     }
                 },
-                0xFE => {
+                lcc.Else.into() => {
                     // Goto relative jump.
                     const n1: u32 = try volPartFbs.reader().readByte();
                     const n2: u32 = try volPartFbs.reader().readByte();
@@ -1011,7 +1028,7 @@ pub const VM = struct {
                     // NOTE: doing a RELATIVE jump: seekBy NOT seekTo (absolute)
                     try volPartFbs.seekBy(gotoOffset);
                 },
-                0xFF => {
+                lcc.If.into() => {
                     // Marks either the beginning or end of IF conditional.
                     self.vm_log("{X:0>2} => if", .{opCodeNR});
                     if (testMode) {
@@ -1271,28 +1288,28 @@ pub const VM = struct {
                 //         return val;
                 //     }
                 // },
-                else => return self.vars[varNo],
+                else => return self.state.vars[varNo],
             }
         }
 
-        return self.vars[varNo];
+        return self.state.vars[varNo];
     }
 
     // Both write_var and mut_var should be the only places allowed to mutate a variable.
     // So these would be the places to gate any variable writing to the VM.
     pub fn write_var(self: *VM, varNo: usize, val: u8) void {
-        self.vars[varNo] = val;
+        self.state.vars[varNo] = val;
     }
 
     pub fn mut_var(self: *VM, varNo: usize, op: []const u8, by: u8) void {
         if (std.mem.eql(u8, op, "+=")) {
-            self.vars[varNo] += by;
+            self.state.vars[varNo] += by;
         } else if (std.mem.eql(u8, op, "-=")) {
-            self.vars[varNo] -= by;
+            self.state.vars[varNo] -= by;
         } else if (std.mem.eql(u8, op, "*=")) {
-            self.vars[varNo] *= by;
+            self.state.vars[varNo] *= by;
         } else if (std.mem.eql(u8, op, "/=")) {
-            self.vars[varNo] /= by;
+            self.state.vars[varNo] /= by;
         } else {
             std.log.warn("bad mut_var operation of: {s} for varNo: {d}, by: {d}", .{ op, varNo, by });
             unreachable;
@@ -1303,12 +1320,12 @@ pub const VM = struct {
         //HACK to always return the musicDone is true, until we implement audio someday.
         switch (flagNo) {
             52 => return true, // 52 in LSL1 (for other games who knows...)
-            else => return self.flags[flagNo],
+            else => return self.state.flags[flagNo],
         }
     }
 
     pub fn set_flag(self: *VM, flagNo: usize, state: bool) void {
-        self.flags[flagNo] = state;
+        self.state.flags[flagNo] = state;
     }
 
     pub fn vm_reset_viewDB(self: *VM) void {

@@ -1,6 +1,19 @@
-pub const MovementFlags = enum { Normal, ChaseEgo, Wander, MoveTo };
+pub const MovementFlags = enum {
+    const Self = @This();
+
+    Normal,
+    ChaseEgo,
+    Wander,
+    MoveTo,
+
+    pub inline fn into(e: Self) u8 {
+        return @enumToInt(e);
+    }
+};
 
 pub const Direction = enum(u8) {
+    const Self = @This();
+
     Stopped = 0,
     Up = 1,
     UpRight = 2,
@@ -11,9 +24,8 @@ pub const Direction = enum(u8) {
     Left = 7,
     UpLeft = 8,
 
-    pub fn into(dir: Direction) u8 {
-        const val = @enumToInt(dir);
-        return val;
+    pub inline fn into(e: Self) u8 {
+        return @enumToInt(e);
     }
 };
 

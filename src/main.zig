@@ -152,8 +152,8 @@ fn testing() !void {
 }
 
 fn renderDebugInfo() void {
-    debugDrawVars(&vmInstance.vars);
-    debugDrawFlags(&vmInstance.flags);
+    debugDrawVars(&vmInstance.state.vars);
+    debugDrawFlags(&vmInstance.state.flags);
 
     const varSet = [_]monVar{
         .{ .name = "egoDir", .idx = 6 },

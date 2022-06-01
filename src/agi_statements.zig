@@ -6,6 +6,7 @@ const go = @import("game_object.zig");
 const rm = @import("resource_manager.zig");
 const hlp = @import("raylib_helpers.zig");
 const pmpt = @import("prompt.zig");
+const vms = @import("vm_state.zig");
 
 const clib = @import("c_defs.zig").c;
 
@@ -256,7 +257,7 @@ pub fn agi_divv(self: *vm.VM, args: *aw.Args) anyerror!void {
 
 pub fn agi_force_update(self: *vm.VM, args: *aw.Args) anyerror!void {
     const objNum = args.get.a();
-    self.gameObjects[objNum].update = true;
+    self.state.gameObjects[objNum].update = true;
     // this.agi_draw(objNo);
 }
 
@@ -283,15 +284,15 @@ pub fn agi_accept_input(self: *vm.VM, _: *aw.Args) anyerror!void {
 
 pub fn agi_unanimate_all(self: *vm.VM) anyerror!void {
     var i: usize = 0;
-    while (i < vm.TOTAL_GAME_OBJS) : (i += 1) {
-        self.gameObjects[i] = go.GameObject.init();
+    while (i < vms.TOTAL_GAME_OBJS) : (i += 1) {
+        self.state.gameObjects[i] = go.GameObject.init();
     }
 }
 
 pub fn agi_stop_update(self: *vm.VM, args: *aw.Args) anyerror!void {
     const objNo = args.get.a();
 
-    self.gameObjects[objNo].update = false;
+    self.state.gameObjects[objNo].update = false;
 }
 
 pub fn agi_stop_motion(self: *vm.VM, args: *aw.Args) anyerror!void {
@@ -301,8 +302,8 @@ pub fn agi_stop_motion(self: *vm.VM, args: *aw.Args) anyerror!void {
         try agi_program_control(self, args);
     }
 
-    self.gameObjects[objNo].motion = false;
-    self.gameObjects[objNo].direction = go.Direction.Stopped;
+    self.state.gameObjects[objNo].motion = false;
+    self.state.gameObjects[objNo].direction = go.Direction.Stopped;
 }
 
 pub fn agi_start_motion(self: *vm.VM, args: *aw.Args) anyerror!void {
@@ -312,13 +313,13 @@ pub fn agi_start_motion(self: *vm.VM, args: *aw.Args) anyerror!void {
         try agi_player_control(self, args);
     }
 
-    self.gameObjects[objNo].motion = true;
+    self.state.gameObjects[objNo].motion = true;
 }
 
 pub fn agi_animate_obj(self: *vm.VM, args: *aw.Args) anyerror!void {
     const objNo = args.get.a();
 
-    self.gameObjects[objNo] = go.GameObject.init();
+    self.state.gameObjects[objNo] = go.GameObject.init();
     self.vm_log("agi_animate_obj({d}) invoked", .{objNo});
 }
 
@@ -326,21 +327,21 @@ pub fn agi_step_size(self: *vm.VM, args: *aw.Args) anyerror!void {
     const objNo = args.get.a();
     const varNo = args.get.b();
 
-    self.gameObjects[objNo].stepSize = self.read_var(varNo);
+    self.state.gameObjects[objNo].stepSize = self.read_var(varNo);
 }
 
 pub fn agi_step_time(self: *vm.VM, args: *aw.Args) anyerror!void {
     const objNo = args.get.a();
     const varNo = args.get.b();
 
-    self.gameObjects[objNo].stepTime = self.read_var(varNo);
+    self.state.gameObjects[objNo].stepTime = self.read_var(varNo);
 }
 
 pub fn agi_cycle_time(self: *vm.VM, args: *aw.Args) anyerror!void {
     const objNo = args.get.a();
     const varNo = args.get.b();
 
-    self.gameObjects[objNo].cycleTime = self.read_var(varNo);
+    self.state.gameObjects[objNo].cycleTime = self.read_var(varNo);
     self.vm_log("agi_cycle_time({d}:objNo, {d}:varNo) invoked", .{ objNo, self.read_var(varNo) });
 }
 
@@ -349,40 +350,40 @@ pub fn agi_get_posn(self: *vm.VM, args: *aw.Args) anyerror!void {
     const varNo1 = args.get.b();
     const varNo2 = args.get.c();
 
-    self.write_var(varNo1, self.gameObjects[objNo].x);
-    self.write_var(varNo2, self.gameObjects[objNo].y);
+    self.write_var(varNo1, self.state.gameObjects[objNo].x);
+    self.write_var(varNo2, self.state.gameObjects[objNo].y);
     self.vm_log("agi_get_posn({d}:objNo, {d}:varNo1, {d}:varNo2", .{ objNo, varNo1, varNo2 });
     //self.breakpoint() catch unreachable;
 }
 
 pub fn agi_observe_blocks(self: *vm.VM, args: *aw.Args) anyerror!void {
     const objNo = args.get.a();
-    self.gameObjects[objNo].ignoreBlocks = false;
+    self.state.gameObjects[objNo].ignoreBlocks = false;
 }
 
 pub fn agi_ignore_blocks(self: *vm.VM, args: *aw.Args) anyerror!void {
     const objNo = args.get.a();
-    self.gameObjects[objNo].ignoreBlocks = true;
+    self.state.gameObjects[objNo].ignoreBlocks = true;
 }
 
 pub fn agi_observe_objs(self: *vm.VM, args: *aw.Args) anyerror!void {
     const objNo = args.get.a();
-    self.gameObjects[objNo].ignoreObjs = false;
+    self.state.gameObjects[objNo].ignoreObjs = false;
 }
 
 pub fn agi_ignore_objs(self: *vm.VM, args: *aw.Args) anyerror!void {
     const objNo = args.get.a();
-    self.gameObjects[objNo].ignoreObjs = true;
+    self.state.gameObjects[objNo].ignoreObjs = true;
 }
 
 pub fn agi_observe_horizon(self: *vm.VM, args: *aw.Args) anyerror!void {
     const objNo = args.get.a();
-    self.gameObjects[objNo].ignoreHorizon = false;
+    self.state.gameObjects[objNo].ignoreHorizon = false;
 }
 
 pub fn agi_ignore_horizon(self: *vm.VM, args: *aw.Args) anyerror!void {
     const objNo = args.get.a();
-    self.gameObjects[objNo].ignoreHorizon = true;
+    self.state.gameObjects[objNo].ignoreHorizon = true;
 }
 
 pub fn agi_lindirectn(self: *vm.VM, args: *aw.Args) anyerror!void {
@@ -396,10 +397,10 @@ pub fn agi_set_view(self: *vm.VM, args: *aw.Args) anyerror!void {
     const objNo = args.get.a();
     const viewNo = args.get.b();
 
-    self.gameObjects[objNo].viewNo = viewNo;
-    self.gameObjects[objNo].loop = 0;
-    self.gameObjects[objNo].cel = 0;
-    self.gameObjects[objNo].celCycling = true;
+    self.state.gameObjects[objNo].viewNo = viewNo;
+    self.state.gameObjects[objNo].loop = 0;
+    self.state.gameObjects[objNo].cel = 0;
+    self.state.gameObjects[objNo].celCycling = true;
 }
 
 pub fn agi_set_view_v(self: *vm.VM, args: *aw.Args) anyerror!void {
@@ -535,9 +536,9 @@ pub fn agi_end_of_loop(self: *vm.VM, args: *aw.Args) anyerror!void {
     const objNo = args.get.a();
     const flagNo = args.get.b();
 
-    self.gameObjects[objNo].callAtEndOfLoop = true;
-    self.gameObjects[objNo].flagToSetWhenFinished = flagNo;
-    // self.gameObjects[objNo].celCycling = true;
+    self.state.gameObjects[objNo].callAtEndOfLoop = true;
+    self.state.gameObjects[objNo].flagToSetWhenFinished = flagNo;
+    // self.state.gameObjects[objNo].celCycling = true;
 }
 
 pub fn agi_overlay_pic(self: *vm.VM, varNo: u8) anyerror!void {
@@ -606,13 +607,13 @@ pub fn agi_show_pic(self: *vm.VM, _: *aw.Args) anyerror!void {
 
 pub fn agi_draw(self: *vm.VM, args: *aw.Args) anyerror!void {
     const objNo = args.get.a();
-    self.gameObjects[objNo].draw = true;
+    self.state.gameObjects[objNo].draw = true;
 }
 
 pub fn agi_set_loop(self: *vm.VM, args: *aw.Args) anyerror!void {
     const objNo = args.get.a();
     const loopNo = args.get.b();
-    self.gameObjects[objNo].loop = loopNo;
+    self.state.gameObjects[objNo].loop = loopNo;
 }
 
 pub fn agi_set_loop_v(self: *vm.VM, args: *aw.Args) anyerror!void {
@@ -630,8 +631,8 @@ pub fn agi_position(self: *vm.VM, args: *aw.Args) anyerror!void {
     const x = args.get.b();
     const y = args.get.c();
 
-    self.gameObjects[objNo].x = x;
-    self.gameObjects[objNo].y = y;
+    self.state.gameObjects[objNo].x = x;
+    self.state.gameObjects[objNo].y = y;
 }
 
 pub fn agi_position_v(self: *vm.VM, args: *aw.Args) anyerror!void {
@@ -647,19 +648,19 @@ pub fn agi_position_v(self: *vm.VM, args: *aw.Args) anyerror!void {
 }
 
 fn agi_set_dir(self: *vm.VM, objNo: u8, varNo: u8) anyerror!void {
-    self.gameObjects[objNo].direction = self.read_var(varNo);
+    self.state.gameObjects[objNo].direction = self.read_var(varNo);
 }
 
 fn agi_get_dir(self: *vm.VM, objNo: u8, varNo: u8) anyerror!void {
-    self.write_var(varNo, self.gameObjects[objNo].direction);
+    self.write_var(varNo, self.state.gameObjects[objNo].direction);
 }
 
 pub fn agi_set_cel(self: *vm.VM, args: *aw.Args) anyerror!void {
     const objNo = args.get.a();
     const celNo = args.get.b();
 
-    self.gameObjects[objNo].nextCycle = 1;
-    self.gameObjects[objNo].cel = celNo;
+    self.state.gameObjects[objNo].nextCycle = 1;
+    self.state.gameObjects[objNo].cel = celNo;
 }
 
 pub fn agi_set_cel_v(self: *vm.VM, args: *aw.Args) anyerror!void {
@@ -676,8 +677,8 @@ pub fn agi_set_priority(self: *vm.VM, args: *aw.Args) anyerror!void {
     const objNo = args.get.a();
     const priority = args.get.b();
 
-    self.gameObjects[objNo].priority = priority;
-    self.gameObjects[objNo].fixedPriority = true;
+    self.state.gameObjects[objNo].priority = priority;
+    self.state.gameObjects[objNo].fixedPriority = true;
 }
 
 pub fn agi_set_priority_v(self: *vm.VM, args: *aw.Args) anyerror!void {
@@ -692,36 +693,36 @@ pub fn agi_set_priority_v(self: *vm.VM, args: *aw.Args) anyerror!void {
 
 pub fn agi_stop_cycling(self: *vm.VM, args: *aw.Args) anyerror!void {
     const objNo = args.get.a();
-    self.gameObjects[objNo].celCycling = false;
+    self.state.gameObjects[objNo].celCycling = false;
     self.vm_log("stop_cycling({d}:objNo)...", .{objNo});
 }
 
 pub fn agi_start_cycling(self: *vm.VM, args: *aw.Args) anyerror!void {
     const objNo = args.get.a();
-    self.gameObjects[objNo].celCycling = true;
+    self.state.gameObjects[objNo].celCycling = true;
     self.vm_log("start_cycling({d}:objNo)...", .{objNo});
 }
 
 pub fn agi_normal_cycle(self: *vm.VM, args: *aw.Args) anyerror!void {
     const objNo = args.get.a();
-    self.gameObjects[objNo].reverseCycle = false;
+    self.state.gameObjects[objNo].reverseCycle = false;
 }
 
 pub fn agi_normal_motion(self: *vm.VM, args: *aw.Args) anyerror!void {
     const objNo = args.get.a();
-    self.gameObjects[objNo].motion = true;
+    self.state.gameObjects[objNo].motion = true;
 }
 
 pub fn agi_currentview(self: *vm.VM, args: *aw.Args) anyerror!void {
     const objNo = args.get.a();
     const varNo = args.get.b();
-    self.write_var(varNo, self.gameObjects[objNo].viewNo);
+    self.write_var(varNo, self.state.gameObjects[objNo].viewNo);
 }
 
 pub fn agi_current_cel(self: *vm.VM, args: *aw.Args) anyerror!void {
     const objNo = args.get.a();
     const varNo = args.get.b();
-    self.write_var(varNo, self.gameObjects[objNo].cel);
+    self.write_var(varNo, self.state.gameObjects[objNo].cel);
 }
 
 pub fn agi_player_control(self: *vm.VM, _: *aw.Args) anyerror!void {
@@ -743,7 +744,7 @@ pub fn agi_move_obj(self: *vm.VM, args: *aw.Args) anyerror!void {
     const stepSpeed = args.get.d();
     const flagNo = args.get.e();
 
-    var obj = &self.gameObjects[objNo];
+    var obj = &self.state.gameObjects[objNo];
 
     obj.moveToX = x;
     obj.moveToY = y;
@@ -757,8 +758,8 @@ pub fn agi_distance(self: *vm.VM, args: *aw.Args) anyerror!void {
     const obj2 = args.get.b();
     const varNo = args.get.c();
 
-    var ob1 = &self.gameObjects[obj1];
-    var ob2 = &self.gameObjects[obj2];
+    var ob1 = &self.state.gameObjects[obj1];
+    var ob2 = &self.state.gameObjects[obj2];
 
     if (ob1.draw and ob2.draw) {
         const first = try std.math.absInt(@intCast(i32, ob1.x - ob2.x));
@@ -850,18 +851,18 @@ pub fn agi_print_v_ctx(self: *vm.VM, ctx: *const aw.Context, args: *aw.Args) any
 
 pub fn agi_fix_loop(self: *vm.VM, args: *aw.Args) anyerror!void {
     const objNo = args.get.a();
-    self.gameObjects[objNo].fixedLoop = true;
+    self.state.gameObjects[objNo].fixedLoop = true;
 }
 
 pub fn agi_release_loop(self: *vm.VM, args: *aw.Args) anyerror!void {
     const objNo = args.get.a();
-    self.gameObjects[objNo].fixedLoop = false;
+    self.state.gameObjects[objNo].fixedLoop = false;
 }
 
 pub fn agi_erase(self: *vm.VM, args: *aw.Args) anyerror!void {
     const objNo = args.get.a();
 
-    var obj = &self.gameObjects[objNo];
+    var obj = &self.state.gameObjects[objNo];
     obj.draw = false;
     obj.loop = 0;
     obj.cel = 0;
@@ -892,7 +893,7 @@ pub fn agi_follow_ego(self: *vm.VM, args: *aw.Args) anyerror!void {
     const stepSpeed = args.get.b();
     const flagNo = args.get.c();
 
-    var obj = &self.gameObjects[objNo];
+    var obj = &self.state.gameObjects[objNo];
     obj.moveToStep = stepSpeed;
     obj.flagToSetWhenFinished = flagNo;
     obj.movementFlag = go.MovementFlags.ChaseEgo;
@@ -901,11 +902,11 @@ pub fn agi_follow_ego(self: *vm.VM, args: *aw.Args) anyerror!void {
 pub fn agi_wander(self: *vm.VM, args: *aw.Args) anyerror!void {
     const objNo = args.get.a();
 
-    self.gameObjects[objNo].movementFlag = go.MovementFlags.Wander;
-    self.gameObjects[objNo].direction = go.Direction.UpRight; // TODO: this.randomBetween(1, 9);
+    self.state.gameObjects[objNo].movementFlag = go.MovementFlags.Wander;
+    self.state.gameObjects[objNo].direction = go.Direction.UpRight; // TODO: this.randomBetween(1, 9);
 
     if (objNo == 0) {
-        //self.write_var(6, self.gameObjects[objNo].direction);
+        //self.write_var(6, self.state.gameObjects[objNo].direction);
         //self.agi_program_control();
     }
 }

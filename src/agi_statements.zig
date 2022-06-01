@@ -175,6 +175,18 @@ pub fn agi_reset_v(self: *vm.VM, args: *aw.Args) anyerror!void {
     try agi_reset(self, args.pack());
 }
 
+pub fn agi_toggle(self: *vm.VM, args: *aw.Args) anyerror!void {
+    const flagNo = args.get.a();
+    self.set_flag(flagNo, !self.get_flag(flagNo));
+}
+
+pub fn agi_toggle_v(self: *vm.VM, args: *aw.Args) anyerror!void {
+    const varNo = args.get.a();
+
+    args.set.a(self.read_var(varNo));
+    try agi_toggle(self, args.pack());
+}
+
 pub fn agi_addn(self: *vm.VM, args: *aw.Args) anyerror!void {
     const varNo = args.get.a();
     const num = args.get.b();
@@ -517,6 +529,15 @@ pub fn agi_draw_pic(self: *vm.VM, args: *aw.Args) anyerror!void {
     // this.priorityBuffer.clear(0x04);
     try agi_overlay_pic(self, varNo);
     std.log.info("agi_draw_pic({d})", .{varNo});
+}
+
+pub fn agi_end_of_loop(self: *vm.VM, args: *aw.Args) anyerror!void {
+    const objNo = args.get.a();
+    const flagNo = args.get.b();
+
+    self.gameObjects[objNo].callAtEndOfLoop = true;
+    self.gameObjects[objNo].flagToSetWhenFinished = flagNo;
+    // self.gameObjects[objNo].celCycling = true;
 }
 
 pub fn agi_overlay_pic(self: *vm.VM, varNo: u8) anyerror!void {

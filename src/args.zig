@@ -3,10 +3,19 @@ const expect = std.testing.expect;
 const assert = std.debug.assert;
 const testing = std.testing;
 const ArrayList = std.ArrayList;
+const Allocator = std.mem.Allocator;
 
 pub const Context = struct {
     messageMap: *std.AutoHashMap(usize, []const u8),
 };
+
+pub fn HeapArg(allocator: Allocator, val: u8) !Args {
+    const buf = try allocator.alloc(u8, 1);
+
+    var a = Args.init(buf);
+    a.set.a(val);
+    return a;
+}
 
 // Args wrangling helps with consuming and passing around args.
 // Keep in mind if you reuse the struct you need to ensure your set args are either the same size or less (count-wise).

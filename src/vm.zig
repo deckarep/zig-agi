@@ -8,8 +8,8 @@ const clib = @import("c_defs.zig").c;
 const timer = @import("sys_timers.zig");
 const rm = @import("resource_manager.zig");
 const aw = @import("args.zig");
-const assert = std.debug.assert;
 
+const assert = std.debug.assert;
 const ArrayList = std.ArrayList;
 
 var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -74,6 +74,7 @@ fn buildDirIndex(dirFile: []const u8) ![DIR_INDEX_SIZE]DirectoryIndex {
 
     const len: usize = dirFile.len / 3;
     var i: usize = 0;
+
     while (i < len) : (i += 1) {
         const aByte: u32 = try rdr.readByte();
         const bByte: u32 = try rdr.readByte();
@@ -91,6 +92,7 @@ fn buildDirIndex(dirFile: []const u8) ![DIR_INDEX_SIZE]DirectoryIndex {
             };
         }
     }
+
     // Return a copy of the loaded index array.
     return index;
 }
@@ -222,9 +224,12 @@ pub const VM = struct {
         self.write_var(cmds.VM_VARS.Volume.into(), 15);
         self.write_var(cmds.VM_VARS.MaxInputCharacters.into(), 41); // Input buffer size
 
-        self.set_flag(cmds.VM_FLAGS.SoundOn.into(), true); // Sound enabled
-        self.set_flag(cmds.VM_FLAGS.LogicZeroFirstTime.into(), true); // Logic 0 executed for the first time
-        self.set_flag(cmds.VM_FLAGS.NewRoomExec.into(), true); // Room script executed for the first time
+        // Sound enabled
+        self.set_flag(cmds.VM_FLAGS.SoundOn.into(), true);
+        // Logic 0 executed for the first time
+        self.set_flag(cmds.VM_FLAGS.LogicZeroFirstTime.into(), true);
+        // Room script executed for the first time
+        self.set_flag(cmds.VM_FLAGS.NewRoomExec.into(), true);
 
         try stmts.agi_unanimate_all(self);
         //self.agi_load_logic(0);
@@ -296,13 +301,10 @@ pub const VM = struct {
 
         while (true) {
             {
-                // TODO: clean this shit up.
-                // Super ugly hack to pass dynamic args since we need to pass in an *aw.Args type.
-                // But we only have to do this in a few spots and I will go back and clean this up.
-                var buf: [1]u8 = undefined;
-                var myArgs = &aw.Args.init(&buf);
-                myArgs.set.a(0);
-                try stmts.agi_call(self, myArgs);
+                var ha = try aw.HeapArg(tempAllocator, 0);
+                defer tempAllocator.free(ha.buf);
+
+                try stmts.agi_call(self, &ha);
             }
 
             self.write_var(cmds.VM_VARS.BorderTouchObject.into(), 0);
@@ -313,23 +315,22 @@ pub const VM = struct {
             self.set_flag(cmds.VM_FLAGS.RestartGame.into(), false);
             self.set_flag(cmds.VM_FLAGS.RestoreJustRan.into(), false);
 
-            // draw background.
+            // First, draw background and horizon.
             self.vm_draw_background();
-
-            // draw horizon (debug)
             clib.DrawLineEx(hlp.vec2(0, @intToFloat(f32, self.horizon)), hlp.vec2(vm_width, @intToFloat(f32, self.horizon)), 2.0, clib.YELLOW);
 
-            // draw scene objects (sprites)
+            // Second, draw scene objects (sprites)
             var i: usize = 0;
             while (i < self.gameObjects.len) : (i += 1) {
-                var obj = &self.gameObjects[(self.gameObjects.len - 1) - i];
+                const objIdx = (self.gameObjects.len - 1) - i;
+                var obj = &self.gameObjects[objIdx];
                 if (obj.update) {
-                    if (i == 0) {
+                    if (obj == egoObj) {
                         obj.direction = @intToEnum(go.Direction, egoDir);
                     }
 
                     // TODO: updates should not also be drawing...so we need to draw the background + scene objects as a last step probably.
-                    try self.vm_updateObject(i, obj);
+                    try self.vm_updateObject(objIdx, obj);
                 }
             }
 
@@ -383,33 +384,27 @@ pub const VM = struct {
             if (self.newroom != 0) {
                 // need to start handling this logic next, since new room is changed.
                 {
-                    var buf: [1]u8 = undefined;
-                    var myArgs = &aw.Args.init(&buf);
-                    myArgs.set.a(0);
-                    try stmts.agi_stop_update(self, myArgs);
+                    var ha = try aw.HeapArg(tempAllocator, 0);
+                    defer tempAllocator.free(ha.buf);
+
+                    try stmts.agi_stop_update(self, &ha);
                 }
                 try stmts.agi_unanimate_all(self);
                 // RC: Not sure what to do with this line.
                 //self.loadedLogics = self.loadedLogics.slice(0, 1);
                 {
-                    // TODO: clean this shit up.
-                    // Super ugly hack to pass dynamic args since we need to pass in an *aw.Args type.
-                    // But we only have to do this in a few spots and I will go back and clean this up.
-                    var buf: [1]u8 = undefined;
-                    var emptyArgs = &aw.Args.init(&buf);
-                    try stmts.agi_player_control(self, emptyArgs);
+                    var emptyArgs = try aw.HeapArg(tempAllocator, 0);
+                    defer tempAllocator.free(emptyArgs.buf);
+                    try stmts.agi_player_control(self, &emptyArgs);
                 }
 
                 try stmts.agi_unblock(self);
 
                 {
-                    // TODO: clean this shit up.
-                    // Super ugly hack to pass dynamic args since we need to pass in an *aw.Args type.
-                    // But we only have to do this in a few spots and I will go back and clean this up.
-                    var buf: [1]u8 = undefined;
-                    var myArgs = &aw.Args.init(&buf);
-                    myArgs.set.a(36);
-                    try stmts.agi_set_horizon(self, myArgs);
+                    var ha = try aw.HeapArg(tempAllocator, 36);
+                    defer tempAllocator.free(ha.buf);
+
+                    try stmts.agi_set_horizon(self, &ha);
                 }
 
                 self.write_var(cmds.VM_VARS.PreviousRoom.into(), self.read_var(0));
@@ -420,7 +415,7 @@ pub const VM = struct {
                 self.write_var(cmds.VM_VARS.EgoViewResource.into(), self.gameObjects[0].viewNo);
 
                 switch (self.read_var(cmds.VM_VARS.BorderTouchEgo.into())) {
-                    // 0 => Touched nothing
+                    0 => {}, // Touched nothing.
                     // Top edge or horizon
                     1 => self.gameObjects[0].y = 168,
                     2 => self.gameObjects[0].x = 1,
@@ -635,7 +630,7 @@ pub const VM = struct {
             // 2. I shouldn't be drawing immediately from an update method.
 
             //std.log.info("larry => \n egoDir => {d}, movementFlag => {s}, dir => {s}", .{ self.read_var(6), obj.movementFlag, obj.direction });
-            try self.vm_draw_view(obj.viewNo, obj.loop, obj.cel, @intToFloat(f32, obj.x), @intToFloat(f32, obj.y));
+            try self.vm_draw_view(idx, obj.viewNo, obj.loop, obj.cel, @intToFloat(f32, obj.x), @intToFloat(f32, obj.y));
         }
     }
 
@@ -748,7 +743,7 @@ pub const VM = struct {
         return fmtStr;
     }
 
-    pub fn vm_draw_view(self: *VM, viewNo: u8, loop: u8, cel: u8, x: f32, y: f32) anyerror!void {
+    pub fn vm_draw_view(self: *VM, objIdx: usize, viewNo: u8, loop: u8, cel: u8, x: f32, y: f32) anyerror!void {
         var buf: [100]u8 = undefined;
         const fmtStr = try vm_view_key(&buf, viewNo, loop, cel);
         const texture = self.resMan.ref_texture(rm.WithKey(rm.ResourceTag.Texture, fmtStr));
@@ -762,7 +757,10 @@ pub const VM = struct {
             const scaledX = x * 2; // * 2 * 4;
             const scaledY = y - @intToFloat(f32, txt.height); //(y * 4) - @intToFloat(f32, txt.height);
 
-            clib.DrawTexturePro(txt, hlp.rect(0, 0, @intToFloat(f32, txt.width), @intToFloat(f32, txt.height)), hlp.rect(scaledX, scaledY, @intToFloat(f32, txt.width), @intToFloat(f32, txt.height)), hlp.vec2(0, 0), 0, clib.WHITE);
+            // HACK: for the ego, if direction is left-based swap the sprite's x-axis.
+            var mirrorDir: f32 = if (objIdx == 0 and self.gameObjects[objIdx].direction == go.Direction.Left) -1.0 else 1.0;
+
+            clib.DrawTexturePro(txt, hlp.rect(0, 0, mirrorDir * @intToFloat(f32, txt.width), @intToFloat(f32, txt.height)), hlp.rect(scaledX, scaledY, @intToFloat(f32, txt.width), @intToFloat(f32, txt.height)), hlp.vec2(0, 0), 0, clib.WHITE);
         } else {
             std.log.warn("NOT FOUND view:{d}, loop:{d}, cel:{d} => {s}", .{ viewNo, loop, cel, fmtStr });
             std.os.exit(39);
@@ -1095,8 +1093,8 @@ pub const VM = struct {
                     } else {
                         const statementFunc = cmds.agi_statements[opCodeNR];
 
-                        // const lgs = [_]usize{2};
-                        // const ops = [_][]const u8{ "accept_input", "print_v", "set_scan_start" };
+                        // const lgs = [_]usize{11};
+                        // const ops = [_][]const u8{"cycle_time"};
                         // try self.vm_conditional_breakpoint(lgs[0..], &ops, idx, statementFunc.name);
 
                         // buf for statement args, which gets sliced as needed.
